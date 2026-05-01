@@ -1,0 +1,1 @@
+"""Truck agent implementations."""

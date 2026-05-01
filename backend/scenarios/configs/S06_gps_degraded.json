@@ -1,0 +1,44 @@
+{
+  "id": "S06",
+  "name": "S06 – Emergency Override (GPS Degraded)",
+  "description": "Simulates GPS degradation mid-operation. Timeline event at T=1800s sets gps_accuracy_m > 0.5m, forcing S7 Forced safety override. Large Cat 794 AC fleet.",
+  "polygon": [
+    {"x": 70, "y": 70},
+    {"x": 630, "y": 70},
+    {"x": 630, "y": 430},
+    {"x": 70, "y": 430}
+  ],
+  "entry_point": {"x": 70, "y": 250},
+  "fleet": {
+    "small": 0,
+    "large": 6,
+    "preferred_model": "Cat 794 AC"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 70, "y": 70},
+      {"x": 630, "y": 70},
+      {"x": 630, "y": 430},
+      {"x": 70, "y": 430}
+    ],
+    "material_type": "ore",
+    "material_moisture_pct": 6.0,
+    "slope_limits": {
+      "max_cell_slope": 0.90,
+      "max_average_slope": 0.65
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 10.0,
+      "wind_direction_deg": 45,
+      "visibility_m": 500.0
+    },
+    "timeline": [
+      {
+        "time_sec": 1800,
+        "property_path": "gps_accuracy_m",
+        "value": 0.75
+      }
+    ]
+  }
+}

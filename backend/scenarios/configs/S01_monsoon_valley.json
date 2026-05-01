@@ -1,0 +1,62 @@
+{
+  "id": "S01",
+  "name": "S01 – Monsoon Cut (Valley Fill)",
+  "description": "Copper overburden in a valley polygon. Homogeneous Cat 793F fleet. Monsoon event triggers at T=3600s escalating rain to 25mm/hr, forcing S1→S3+S6.",
+  "polygon": [
+    {"x": 80, "y": 60},
+    {"x": 400, "y": 60},
+    {"x": 460, "y": 160},
+    {"x": 460, "y": 380},
+    {"x": 400, "y": 440},
+    {"x": 80, "y": 440},
+    {"x": 40, "y": 340},
+    {"x": 40, "y": 160}
+  ],
+  "entry_point": {"x": 40, "y": 250},
+  "fleet": {
+    "small": 0,
+    "large": 6,
+    "preferred_model": "Cat 793F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 80, "y": 60},
+      {"x": 400, "y": 60},
+      {"x": 460, "y": 160},
+      {"x": 460, "y": 380},
+      {"x": 400, "y": 440},
+      {"x": 80, "y": 440},
+      {"x": 40, "y": 340},
+      {"x": 40, "y": 160}
+    ],
+    "material_type": "ore",
+    "material_moisture_pct": 12.0,
+    "slope_limits": {
+      "max_cell_slope": 0.85,
+      "max_average_slope": 0.60
+    },
+    "weather": {
+      "rain_intensity": 4.0,
+      "wind_speed": 15.0,
+      "wind_direction_deg": 225,
+      "visibility_m": 350.0
+    },
+    "timeline": [
+      {
+        "time_sec": 3600,
+        "property_path": "weather.rain_intensity",
+        "value": 25.0
+      },
+      {
+        "time_sec": 3600,
+        "property_path": "weather.visibility_m",
+        "value": 120.0
+      },
+      {
+        "time_sec": 3600,
+        "property_path": "weather.wind_speed",
+        "value": 38.0
+      }
+    ]
+  }
+}

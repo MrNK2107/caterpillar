@@ -1,0 +1,38 @@
+{
+  "id": "S02",
+  "name": "S02 – Flat Bench (Homogeneous Large Fleet)",
+  "description": "Iron ore extraction in a wide rectangular bench. 8x Cat 797F, optimal density packing, clear weather.",
+  "polygon": [
+    {"x": 50, "y": 80},
+    {"x": 670, "y": 80},
+    {"x": 670, "y": 400},
+    {"x": 50, "y": 400}
+  ],
+  "entry_point": {"x": 50, "y": 240},
+  "fleet": {
+    "small": 0,
+    "large": 8,
+    "preferred_model": "Cat 797F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 50, "y": 80},
+      {"x": 670, "y": 80},
+      {"x": 670, "y": 400},
+      {"x": 50, "y": 400}
+    ],
+    "material_type": "ore",
+    "material_moisture_pct": 5.0,
+    "slope_limits": {
+      "max_cell_slope": 0.95,
+      "max_average_slope": 0.70
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 8.0,
+      "wind_direction_deg": 90,
+      "visibility_m": 500.0
+    },
+    "timeline": []
+  }
+}

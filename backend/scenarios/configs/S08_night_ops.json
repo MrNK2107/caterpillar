@@ -1,0 +1,46 @@
+{
+  "id": "S08",
+  "name": "S08 – Night Ops (Low Visibility + LiDAR Fault at T=5400s)",
+  "description": "Nighttime operations with reduced visibility. LiDAR fault injected at T=5400s forces S7 Forced. Mixed fleet.",
+  "polygon": [
+    {"x": 60, "y": 100},
+    {"x": 650, "y": 100},
+    {"x": 700, "y": 250},
+    {"x": 650, "y": 400},
+    {"x": 60, "y": 400}
+  ],
+  "entry_point": {"x": 60, "y": 250},
+  "fleet": {
+    "small": 3,
+    "large": 5,
+    "preferred_model": "Cat 793F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 60, "y": 100},
+      {"x": 650, "y": 100},
+      {"x": 700, "y": 250},
+      {"x": 650, "y": 400},
+      {"x": 60, "y": 400}
+    ],
+    "material_type": "rock",
+    "material_moisture_pct": 10.0,
+    "slope_limits": {
+      "max_cell_slope": 0.80,
+      "max_average_slope": 0.55
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 20.0,
+      "wind_direction_deg": 270,
+      "visibility_m": 80.0
+    },
+    "timeline": [
+      {
+        "time_sec": 5400,
+        "property_path": "lidar_fault",
+        "value": 1.0
+      }
+    ]
+  }
+}

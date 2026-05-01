@@ -1,0 +1,44 @@
+{
+  "id": "S04",
+  "name": "S04 – Clay Freeze (Sub-8°C Copper Overburden)",
+  "description": "Cold-weather scenario. Copper overburden at T<8°C. The Clay Freeze Modifier applies a 15% footprint reduction. Homogeneous Cat 789D fleet.",
+  "polygon": [
+    {"x": 60, "y": 60},
+    {"x": 580, "y": 60},
+    {"x": 640, "y": 200},
+    {"x": 640, "y": 360},
+    {"x": 580, "y": 440},
+    {"x": 60, "y": 440},
+    {"x": 40, "y": 250}
+  ],
+  "entry_point": {"x": 40, "y": 250},
+  "fleet": {
+    "small": 6,
+    "large": 0,
+    "preferred_model": "Cat 789D"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 60, "y": 60},
+      {"x": 580, "y": 60},
+      {"x": 640, "y": 200},
+      {"x": 640, "y": 360},
+      {"x": 580, "y": 440},
+      {"x": 60, "y": 440},
+      {"x": 40, "y": 250}
+    ],
+    "material_type": "clay",
+    "material_moisture_pct": 22.0,
+    "slope_limits": {
+      "max_cell_slope": 0.75,
+      "max_average_slope": 0.50
+    },
+    "weather": {
+      "rain_intensity": 2.0,
+      "wind_speed": 12.0,
+      "wind_direction_deg": 315,
+      "visibility_m": 280.0
+    },
+    "timeline": []
+  }
+}

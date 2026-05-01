@@ -1,0 +1,38 @@
+{
+  "id": "S03",
+  "name": "S03 – Narrow Corridor (Choke Point Stress Test)",
+  "description": "Long, narrow trapezoidal polygon simulating a valley fill access road. Mixed fleet (Cat 777G + Cat 793F). Tests V2V negotiation at choke width < 22.6m.",
+  "polygon": [
+    {"x": 40, "y": 190},
+    {"x": 40, "y": 290},
+    {"x": 680, "y": 340},
+    {"x": 680, "y": 140}
+  ],
+  "entry_point": {"x": 40, "y": 240},
+  "fleet": {
+    "small": 4,
+    "large": 3,
+    "preferred_model": "Cat 793F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 40, "y": 190},
+      {"x": 40, "y": 290},
+      {"x": 680, "y": 340},
+      {"x": 680, "y": 140}
+    ],
+    "material_type": "rock",
+    "material_moisture_pct": 3.0,
+    "slope_limits": {
+      "max_cell_slope": 0.80,
+      "max_average_slope": 0.55
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 5.0,
+      "wind_direction_deg": 0,
+      "visibility_m": 500.0
+    },
+    "timeline": []
+  }
+}

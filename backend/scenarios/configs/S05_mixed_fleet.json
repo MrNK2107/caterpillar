@@ -1,0 +1,40 @@
+{
+  "id": "S05",
+  "name": "S05 – Mixed Fleet Heterogeneous Packing",
+  "description": "Mixed fleet with full range (Cat 777G through Cat 797F). Sandy material with high wind. Tests S4 edge-to-edge spacing for heterogeneous pile radii.",
+  "polygon": [
+    {"x": 50, "y": 50},
+    {"x": 660, "y": 50},
+    {"x": 700, "y": 240},
+    {"x": 660, "y": 430},
+    {"x": 50, "y": 430}
+  ],
+  "entry_point": {"x": 50, "y": 240},
+  "fleet": {
+    "small": 4,
+    "large": 4,
+    "preferred_model": "Cat 793F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 50, "y": 50},
+      {"x": 660, "y": 50},
+      {"x": 700, "y": 240},
+      {"x": 660, "y": 430},
+      {"x": 50, "y": 430}
+    ],
+    "material_type": "sand",
+    "material_moisture_pct": 8.0,
+    "slope_limits": {
+      "max_cell_slope": 0.90,
+      "max_average_slope": 0.65
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 42.0,
+      "wind_direction_deg": 180,
+      "visibility_m": 400.0
+    },
+    "timeline": []
+  }
+}
