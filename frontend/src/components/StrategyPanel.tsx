@@ -24,6 +24,9 @@ export const StrategyPanel: React.FC = () => {
   const plannerPhaseReason = decisionState?.plannerPhaseReason || "pending";
   const spacingPatternStatus = decisionState?.spacingPatternStatus || "inactive";
   const waveId = decisionState?.waveId ?? 0;
+  const spacingControl = (decisionState?.spacingControl ?? {}) as Record<string, unknown>;
+  const uiStepIntervalMs = decisionState?.uiStepIntervalMs ?? 200;
+  const playbackMode = decisionState?.playbackMode ?? "normal";
   const invariants = decisionState?.s3aInvariantStatus;
   const latestTrace = getLatestAssignmentTrace(assignmentDiagnostics);
   
@@ -82,6 +85,20 @@ export const StrategyPanel: React.FC = () => {
           {spacingPatternStatus}
           <span className="text-slate-500"> (wave {waveId})</span>
         </div>
+        <div className="text-xs text-slate-500">
+          <span className="font-semibold">Playback: </span>
+          {playbackMode} ({uiStepIntervalMs} ms/step)
+        </div>
+        <div className="text-xs text-slate-500">
+          <span className="font-semibold">Backfill gap control: </span>
+          {String(spacingControl?.queue_pressure_band ?? "low")} queue / {String(spacingControl?.fleet_pressure_band ?? "mixed")} fleet
+          <span className="text-slate-400"> | x{Number(spacingControl?.backfill_gap_multiplier ?? 1).toFixed(2)}</span>
+          <span className="text-slate-400"> | pitch {Number(spacingControl?.effective_backfill_pitch_m ?? 0).toFixed(2)} m</span>
+        </div>
+        <div className="text-xs text-slate-500">
+          <span className="font-semibold">Committed dumps: </span>
+          {Number(decisionState?.committedDumpCount ?? 0)}
+        </div>
 
         {transitionPending && pendingStrategy && (
           <div className="text-xs text-amber-400">
@@ -119,6 +136,8 @@ export const StrategyPanel: React.FC = () => {
             {latestTrace?.row_id ?? "N/A"}
             <span className="text-slate-500"> | State: </span>
             {latestTrace?.slot_state ?? "N/A"}
+            <span className="text-slate-500"> | Lifecycle: </span>
+            {latestTrace?.slot_lifecycle_state ?? "N/A"}
           </div>
           <div>
             <span className="text-slate-500">Reserve class: </span>
@@ -132,7 +151,13 @@ export const StrategyPanel: React.FC = () => {
           </div>
           <div>
             <span className="text-slate-500">Current blocker: </span>
-            {latestTrace?.selected_xy ? "none" : (latestTrace?.queue_state ?? latestTrace?.explainability ?? "awaiting assignment")}
+            {latestTrace?.selected_xy ? "none" : (latestTrace?.assignment_blocker_code ?? latestTrace?.queue_state ?? latestTrace?.candidate_validation?.reasons?.[0] ?? latestTrace?.explainability ?? "awaiting assignment")}
+          </div>
+          <div>
+            <span className="text-slate-500">Outcome: </span>
+            {latestTrace?.assignment_outcome_type ?? "unknown"}
+            <span className="text-slate-500"> | Replan attempts: </span>
+            {latestTrace?.replan_attempt_count ?? 0}
           </div>
           <div>
             <span className="text-slate-500">Last strategy eval: </span>

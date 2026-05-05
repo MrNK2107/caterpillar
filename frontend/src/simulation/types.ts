@@ -79,6 +79,15 @@ export interface Pile {
   radius: number;
 }
 
+export interface DumpCue {
+  x: number;
+  y: number;
+  radius: number;
+  state: 'reserved' | 'completed';
+  truckId?: string;
+  timestampSec?: number;
+}
+
 export interface FleetConfig {
   small: number;
   large: number;
@@ -132,10 +141,13 @@ export interface Truck {
     speedLimiter: string;
     effectiveSpeed: number;
     expectedSpeed: number;
+    motionProfile?: string;
     blockedBy: string;
     ticksSinceProgress: number;
   };
 }
+
+export type PlaybackMode = 'demo' | 'normal';
 
 export interface SimMetrics {
   totalDumps: number;
@@ -187,6 +199,13 @@ export interface DecisionState {
   lastStrategyEvalTs: number | null;
   lastSuccessfulAssignmentTs: number | null;
   slotSystemHealth?: Record<string, unknown>;
+  slotLedgerSummary?: Record<string, unknown>;
+  queueForecastSummary?: Record<string, unknown>;
+  waveProgress?: Record<string, unknown>;
+  queueAgeStats?: Record<string, unknown>;
+  spacingControl?: Record<string, unknown>;
+  s3aRetryBudget?: Record<string, unknown>;
+  activeFarEndRows?: number;
   activeRowId?: number;
   farEndGateActive?: boolean;
   s3aInvariantStatus?: {
@@ -194,4 +213,9 @@ export interface DecisionState {
     parity_gate: boolean;
     anchor_gap_gate: boolean;
   };
+  uiStepIntervalMs?: number;
+  playbackMode?: PlaybackMode;
+  backfillUnlockState?: Record<string, unknown>;
+  collisionHorizonSummary?: Record<string, unknown>;
+  committedDumpCount?: number;
 }

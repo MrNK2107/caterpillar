@@ -26,9 +26,16 @@ class SlotPhase(str, Enum):
 
 
 class SlotState(str, Enum):
+    CANDIDATE = "candidate"
     FREE = "free"
     RESERVED = "reserved"
+    ASSIGNED = "assigned"
     DUMPED = "dumped"
+    RELEASED = "released"
+    HELD = "held"
+    EXPIRED = "expired"
+    RESIZED = "resized"
+    SPLIT = "split"
 
 
 @dataclass
@@ -50,6 +57,15 @@ class SlotEntry:
     reserve_class: str = "Medium"
     parity: str = "A"
     reserved_at: float = 0.0
+    slot_lifecycle_state: str = "candidate"
+    assigned_truck_id: Optional[str] = None
+    assigned_at: float = 0.0
+    released_at: float = 0.0
+    expired_at: float = 0.0
+    age_seconds: float = 0.0
+    confidence: float = 0.75
+    risk_flags: Tuple[str, ...] = ()
+    class_compatibility: Tuple[str, ...] = ("S", "M", "L", "XL")
 
 
 @dataclass
@@ -81,6 +97,10 @@ class SlotRegistry:
         self._built = False
         self._active_wave_row_ptr = 0
         self._last_built_signature: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+        self._backfill_gap_multiplier: float = 1.0
+        self._effective_backfill_pitch_m: float = 0.0
+        self._queue_pressure_band: str = "low"
+        self._fleet_pressure_band: str = "mixed"
 
     def is_built(self) -> bool:
         return self._built
@@ -93,6 +113,60 @@ class SlotRegistry:
             self._built = False
             self._active_wave_row_ptr = 0
             self._last_built_signature = (0.0, 0.0, 0.0, 0.0)
+            self._backfill_gap_multiplier = 1.0
+            self._effective_backfill_pitch_m = 0.0
+            self._queue_pressure_band = "low"
+            self._fleet_pressure_band = "mixed"
+
+    @staticmethod
+    def _queue_pressure_band_from_p95(queue_p95: int) -> str:
+        if queue_p95 < 12:
+            return "low"
+        if queue_p95 <= 30:
+            return "medium"
+        return "high"
+
+    @staticmethod
+    def _fleet_pressure_band_from_counts(small: int, large: int) -> str:
+        total = max(1, int(small) + int(large))
+        large_ratio = float(large) / float(total)
+        small_ratio = float(small) / float(total)
+        if large_ratio >= 0.6:
+            return "large_dominant"
+        if small_ratio >= 0.6:
+            return "small_dominant"
+        return "mixed"
+
+    def set_spacing_control(self, queue_p95: int, small_count: int, large_count: int, planner_phase: str) -> None:
+        with self._lock:
+            self._queue_pressure_band = self._queue_pressure_band_from_p95(int(queue_p95))
+            self._fleet_pressure_band = self._fleet_pressure_band_from_counts(int(small_count), int(large_count))
+            phase = str(planner_phase or "").lower()
+
+            multiplier = 1.0
+            if phase == "backfill":
+                if self._queue_pressure_band == "low":
+                    multiplier = 1.30
+                elif self._queue_pressure_band == "medium":
+                    multiplier = 1.12
+                else:
+                    multiplier = 0.95
+
+                if self._fleet_pressure_band in {"mixed", "large_dominant"}:
+                    multiplier += 0.05
+
+            self._backfill_gap_multiplier = max(0.95, min(1.35, multiplier))
+            base_pitch = max((slot.required_pitch_m for slot in self._slots.values()), default=0.0)
+            self._effective_backfill_pitch_m = base_pitch * self._backfill_gap_multiplier if base_pitch > 0 else 0.0
+
+    def spacing_control_snapshot(self) -> dict:
+        with self._lock:
+            return {
+                "backfill_gap_multiplier": float(self._backfill_gap_multiplier),
+                "effective_backfill_pitch_m": float(self._effective_backfill_pitch_m),
+                "queue_pressure_band": self._queue_pressure_band,
+                "fleet_pressure_band": self._fleet_pressure_band,
+            }
 
     @staticmethod
     def _truck_radius_from_models(truck_models: Sequence[object]) -> float:
@@ -104,6 +178,20 @@ class SlotRegistry:
             pl = float(getattr(m, "pile_length_m", 7.5))
             radii.append(math.hypot(pw / 2.0, pl / 2.0))
         return sum(radii) / len(radii)
+
+    @staticmethod
+    def _avg_payload_t(truck_models: Sequence[object]) -> float:
+        payloads = [float(getattr(model, "payload_tonnes", 120.0)) for model in truck_models if model is not None]
+        if not payloads:
+            return 120.0
+        return sum(payloads) / float(len(payloads))
+
+    @staticmethod
+    def _avg_turning_radius_m(truck_models: Sequence[object]) -> float:
+        radii = [float(getattr(model, "turning_radius_m", 9.5)) for model in truck_models if model is not None]
+        if not radii:
+            return 9.5
+        return sum(radii) / float(len(radii))
 
     @staticmethod
     def _reserve_class_for_radius(radius: float) -> str:
@@ -152,8 +240,13 @@ class SlotRegistry:
             l_start, l_end = l_min + inset_m, l_max - inset_m
 
             r_avg = self._truck_radius_from_models(truck_models)
+            avg_payload_t = self._avg_payload_t(truck_models)
+            avg_turning_radius_m = self._avg_turning_radius_m(truck_models)
             reserve_class = self._reserve_class_for_radius(r_avg)
-            required_pitch = max(3.5, (2.0 * r_avg) + gap_free_m - overlap_allow_m + uncertainty_m)
+            # Volume + turning-aware baseline pitch for mixed-fleet backfill safety.
+            volume_proxy = max(0.8, (avg_payload_t / 120.0) ** (1.0 / 3.0))
+            turning_buffer = max(0.8, avg_turning_radius_m * 0.08)
+            required_pitch = max(6.4, (2.2 * r_avg * volume_proxy) + gap_free_m - overlap_allow_m + uncertainty_m + turning_buffer + 1.0)
             row_pitch = max(4.5, required_pitch * 0.85)
 
             if d_end <= d_start or l_end <= l_start:
@@ -198,12 +291,16 @@ class SlotRegistry:
                             unlock_state="anchor_open",
                             reserve_class=reserve_class,
                             parity=parity,
+                            slot_lifecycle_state="candidate",
+                            class_compatibility=("M", "L", "XL"),
                         )
                         row_anchor_ids.append(sid)
 
-                        # Reserved backfill between adjacent anchors
+                        # Reserved backfill between adjacent anchors.
+                        # Keep only alternating backfill windows to avoid over-dense
+                        # backfill spacing and preserve maneuver room.
                         next_l = l + required_pitch
-                        if next_l <= l_end:
+                        if next_l <= l_end and (col_id % 2 == 0):
                             bfl = l + (required_pitch * 0.5)
                             bwx = entry_xy[0] + d * axis_x + bfl * lat_x
                             bwy = entry_xy[1] + d * axis_y + bfl * lat_y
@@ -224,6 +321,8 @@ class SlotRegistry:
                                     unlock_state="locked",
                                     reserve_class=reserve_class,
                                     parity="B" if parity == "A" else "A",
+                                    slot_lifecycle_state="candidate",
+                                    class_compatibility=("S", "M", "L"),
                                 )
                                 row_backfill_ids.append(bid)
                         col_id += 1
@@ -278,7 +377,7 @@ class SlotRegistry:
             for parity in (row.active_parity, "B" if row.active_parity == "A" else "A"):
                 for sid in row.anchor_slots:
                     slot = self._slots.get(sid)
-                    if slot and slot.state == SlotState.FREE and slot.parity == parity:
+                    if slot and slot.state in {SlotState.FREE, SlotState.RELEASED} and slot.parity == parity:
                         out.append(slot)
         return out
 
@@ -286,13 +385,27 @@ class SlotRegistry:
         if planner_phase.upper() != "BACKFILL":
             return []
         out: List[SlotEntry] = []
+        density_stride = 2 if self._queue_pressure_band == "low" else (1 if self._queue_pressure_band == "high" else 2)
         for rid in self._ordered_anchor_rows:
             row = self._rows.get(rid)
-            if not row or not row.anchors_complete:
+            if not row:
+                continue
+            anchor_count = max(1, len(row.anchor_slots))
+            dumped_ratio = float(row.anchors_dumped) / float(anchor_count)
+            # Adaptive unlock: delay backfill longer under low queue pressure.
+            if self._queue_pressure_band == "low":
+                unlock_ratio = 0.75
+            elif self._queue_pressure_band == "medium":
+                unlock_ratio = 0.5
+            else:
+                unlock_ratio = 0.34
+            if dumped_ratio < unlock_ratio:
                 continue
             for sid in row.backfill_slots:
                 slot = self._slots.get(sid)
-                if slot and slot.state == SlotState.FREE:
+                if slot and density_stride > 1 and (slot.col_id % density_stride != 0):
+                    continue
+                if slot and slot.state in {SlotState.FREE, SlotState.RELEASED}:
                     out.append(slot)
         return out
 
@@ -302,6 +415,7 @@ class SlotRegistry:
         truck_model: object,
         planner_phase: str = "bootstrap_far_end",
         wave_id: int = 0,
+        truck_position: Optional[Tuple[float, float]] = None,
     ) -> Optional[SlotEntry]:
         del truck_model, wave_id  # model-aware classing can be expanded later
         with self._lock:
@@ -323,11 +437,24 @@ class SlotRegistry:
                     candidates = self._candidate_backfill_slots(planner_phase)
             if not candidates:
                 return None
+            if truck_position is not None:
+                tx, ty = float(truck_position[0]), float(truck_position[1])
+                # Lane-aware anchor preference: keep trucks on their lateral side
+                # so left-entry trucks anchor left-extreme first.
+                candidates = sorted(
+                    candidates,
+                    key=lambda slot: (
+                        abs(slot.y - ty),
+                        abs(slot.x - tx),
+                        slot.col_id,
+                    ),
+                )
 
             slot = candidates[0]
             slot.state = SlotState.RESERVED
             slot.reserved_by = truck_id
             slot.reserved_at = time.time()
+            slot.slot_lifecycle_state = "reserved"
             if slot.phase == SlotPhase.ANCHOR:
                 row = self._rows.get(slot.row_id)
                 if row:
@@ -338,9 +465,12 @@ class SlotRegistry:
         with self._lock:
             for slot in self._slots.values():
                 if slot.reserved_by == truck_id and slot.state == SlotState.RESERVED:
+                    # Keep lifecycle observable while returning slot to reusable pool.
                     slot.state = SlotState.FREE
                     slot.reserved_by = None
                     slot.reserved_at = 0.0
+                    slot.slot_lifecycle_state = "released"
+                    slot.released_at = time.time()
                     return
 
     def mark_dumped(self, truck_id: str) -> None:
@@ -350,6 +480,7 @@ class SlotRegistry:
                     slot.state = SlotState.DUMPED
                     slot.reserved_by = None
                     slot.reserved_at = 0.0
+                    slot.slot_lifecycle_state = "filled"
                     row = self._rows.get(slot.row_id)
                     if row and slot.phase == SlotPhase.ANCHOR:
                         row.anchors_dumped += 1
@@ -369,6 +500,56 @@ class SlotRegistry:
                     return slot
             return None
 
+    def bind_assigned_truck(self, slot_id: str, truck_id: str) -> bool:
+        with self._lock:
+            slot = self._slots.get(slot_id)
+            if slot is None:
+                return False
+            if slot.state != SlotState.RESERVED:
+                return False
+            slot.state = SlotState.ASSIGNED
+            slot.assigned_truck_id = truck_id
+            slot.assigned_at = time.time()
+            slot.slot_lifecycle_state = "assigned"
+            return True
+
+    def release_assigned_slot(self, truck_id: str, reason: str = "truck_unavailable") -> bool:
+        with self._lock:
+            for slot in self._slots.values():
+                if slot.assigned_truck_id == truck_id and slot.state == SlotState.ASSIGNED:
+                    slot.state = SlotState.FREE
+                    slot.assigned_truck_id = None
+                    slot.assigned_at = 0.0
+                    slot.released_at = time.time()
+                    slot.slot_lifecycle_state = "released"
+                    slot.risk_flags = tuple(sorted(set(slot.risk_flags + (f"released_{reason}",))))
+                    return True
+            return False
+
+    def recover_released_slots(self) -> int:
+        """
+        Emergency pool recovery: move RELEASED state slots back to FREE while
+        preserving lifecycle metadata.
+        """
+        with self._lock:
+            recovered = 0
+            for slot in self._slots.values():
+                if slot.state == SlotState.RELEASED:
+                    slot.state = SlotState.FREE
+                    recovered += 1
+            return recovered
+
+    def expire_slot(self, slot_id: str, reason: str = "stale") -> bool:
+        with self._lock:
+            slot = self._slots.get(slot_id)
+            if slot is None:
+                return False
+            slot.state = SlotState.EXPIRED
+            slot.expired_at = time.time()
+            slot.slot_lifecycle_state = "expired"
+            slot.risk_flags = tuple(sorted(set(slot.risk_flags + (f"expired_{reason}",))))
+            return True
+
     def stats(self) -> dict:
         with self._lock:
             total = len(self._slots)
@@ -381,6 +562,37 @@ class SlotRegistry:
                 "reserved": reserved,
                 "dumped": dumped,
                 "rows": len(self._rows),
+            }
+
+    def slot_ledger_summary(self) -> dict:
+        with self._lock:
+            counts: Dict[str, int] = {
+                "candidate": 0,
+                "reserved": 0,
+                "assigned": 0,
+                "filled": 0,
+                "released": 0,
+                "held": 0,
+                "expired": 0,
+                "resized": 0,
+                "split": 0,
+            }
+            by_class: Dict[str, int] = {}
+            by_phase: Dict[str, int] = {}
+            blocked_reasons: Dict[str, int] = {}
+            for slot in self._slots.values():
+                counts[slot.slot_lifecycle_state] = counts.get(slot.slot_lifecycle_state, 0) + 1
+                by_class[slot.reserve_class] = by_class.get(slot.reserve_class, 0) + 1
+                by_phase[slot.phase.value] = by_phase.get(slot.phase.value, 0) + 1
+                for reason in slot.risk_flags:
+                    blocked_reasons[str(reason)] = blocked_reasons.get(str(reason), 0) + 1
+            return {
+                "counts": counts,
+                "rows": len(self._rows),
+                "by_class": by_class,
+                "by_phase": by_phase,
+                "blocked_reasons": blocked_reasons,
+                "total_slots": len(self._slots),
             }
 
     def health(self, planner_phase: str) -> dict:

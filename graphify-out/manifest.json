@@ -1,0 +1,570 @@
+{
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\main.py": {
+    "mtime": 1777692638.4523218,
+    "hash": "0679461a11308e57d198d566e03c7af4"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\agents\\truck_agent.py": {
+    "mtime": 1778000036.665699,
+    "hash": "4c166254f1631b56beee6d5036c64a79"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\agents\\__init__.py": {
+    "mtime": 1777692638.4363258,
+    "hash": "0be4c69030150cb530961897df76df6c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\app\\assignment_service.py": {
+    "mtime": 1777967249.3657105,
+    "hash": "7a57308b3e948dc2784dc262362e8502"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\app\\dump_manager.py": {
+    "mtime": 1777999992.3285968,
+    "hash": "5abbfaa908de8dccd56852ad6c23acaf"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\app\\main.py": {
+    "mtime": 1777960068.5288548,
+    "hash": "13ecf830f6ba7aa1cd7eca6ae658cdaa"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\app\\models.py": {
+    "mtime": 1777957546.9473298,
+    "hash": "e78ec03eac6ae2b5101b1b8ea2e8e92c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\app\\pathfinder.py": {
+    "mtime": 1777692638.4423218,
+    "hash": "dbfae20bedc02be2558093571df8c59a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\app\\__init__.py": {
+    "mtime": 1777692638.4383206,
+    "hash": "0f0a96ad9f6970af0e9deeddf0c4bbe0"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\communication\\v2v_protocol.py": {
+    "mtime": 1777692638.4443195,
+    "hash": "cabd4ed670ad335e70006331f683ce08"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\communication\\__init__.py": {
+    "mtime": 1777692638.443321,
+    "hash": "7b815725dcac5be70ad2c60b2bf5a096"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\dsde\\decision_engine.py": {
+    "mtime": 1777692638.44632,
+    "hash": "e3d7f982c4effd0b73f1b33904e108c8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\dsde\\__init__.py": {
+    "mtime": 1777692638.4453197,
+    "hash": "fcf3ecdc17b7f66e2c52ef24f63311d5"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\fleet\\truck_models.py": {
+    "mtime": 1777692638.4473214,
+    "hash": "22416fbb8b5d4b3e17cbd34f97ea0c49"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\fleet\\__init__.py": {
+    "mtime": 1777692638.4473214,
+    "hash": "b2ca7fcef1ae189e2e454b1c1dd8c2c6"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\geometry\\collision_avoidance.py": {
+    "mtime": 1777864958.8717217,
+    "hash": "01f6455176d0b4b211738e7a06727abe"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\geometry\\path_planner.py": {
+    "mtime": 1777692638.4503198,
+    "hash": "a318f6cda48298ecf583cee15e9aed4a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\geometry\\reachability.py": {
+    "mtime": 1777692638.4513195,
+    "hash": "742ace5a67f1dc8493c054c39092c9b1"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\geometry\\__init__.py": {
+    "mtime": 1777692638.4493248,
+    "hash": "8744824dbe0f70df31cbb7478e37d2ba"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\perception\\sensor_model.py": {
+    "mtime": 1777692638.4543223,
+    "hash": "acabdf86a85333aeae6b972494f94f66"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\perception\\surface_map.py": {
+    "mtime": 1777692638.4553218,
+    "hash": "7f4778f34fb8623cb71197847f3c5288"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\perception\\__init__.py": {
+    "mtime": 1777692638.4543223,
+    "hash": "1b519437ee5da6e9168a6cb99dfb3650"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\scenarios\\__init__.py": {
+    "mtime": 1777692638.4573221,
+    "hash": "ff1b9e61e5a95bf839fbdaa106865ea8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\simulation\\conflict_arbiter.py": {
+    "mtime": 1777866998.889652,
+    "hash": "29918732cb5a1cc65495a6faae0c1374"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\simulation\\metrics.py": {
+    "mtime": 1777692638.4663227,
+    "hash": "c9b9b4e2d5ca2274562a6eaf4d092dc6"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\simulation\\reservation_system.py": {
+    "mtime": 1777866867.3802292,
+    "hash": "477aa5100f6fad1b26ea951c6e7bec39"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\simulation\\terrain_metrics.py": {
+    "mtime": 1777692638.4673226,
+    "hash": "910a5107267514f76ec281a185c7fce7"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\simulation\\__init__.py": {
+    "mtime": 1777692638.4653237,
+    "hash": "f41e624baed0e3434a533f94fc4e051a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies\\candidate_generation.py": {
+    "mtime": 1777989006.7807713,
+    "hash": "e9d7fa31b30ab56cc34317410e3fd4fb"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies\\scoring.py": {
+    "mtime": 1777692638.4693215,
+    "hash": "42b2e396fcbac6d8d203e889053f8511"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies\\__init__.py": {
+    "mtime": 1777692638.4683244,
+    "hash": "ef1de5281b9888f81f47dbc6f05ade4b"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\centralized_row_planner.py": {
+    "mtime": 1777999916.3615668,
+    "hash": "76fb87174129b4504edd65e6940042d9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\common.py": {
+    "mtime": 1777972414.1546926,
+    "hash": "e639e46bad92987040762f3afc71d154"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\registry.py": {
+    "mtime": 1777692638.4723241,
+    "hash": "3bbdbe7fc3a12865971c8718e11a1ab1"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s1_grid_strategy.py": {
+    "mtime": 1777865259.8545167,
+    "hash": "905d6d5681175e8f79c44832881151b9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s2_polygon_aware_grid.py": {
+    "mtime": 1777865268.9241588,
+    "hash": "62a0d529d70c04e253096a1d5cce7cbf"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s3a_kernel.py": {
+    "mtime": 1777991259.3660135,
+    "hash": "2cfb40a914461e000a41496997d7914e"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s3_adaptive_strategy.py": {
+    "mtime": 1777959915.4495058,
+    "hash": "249030620137c7dcd635deccde923633"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s4_polygon_constrained_adaptive.py": {
+    "mtime": 1777959925.169254,
+    "hash": "27ce32578fd2c65ba9592e5c11911633"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s5_p2p_coordination_strategy.py": {
+    "mtime": 1777692638.4763215,
+    "hash": "0b11d8fb8eb55e8db08632e9d57d7af9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s6_safety_modifier.py": {
+    "mtime": 1777692638.4763215,
+    "hash": "12cf1548cbeedeedb002511acf2c12dc"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\s7_fallback_strategy.py": {
+    "mtime": 1777692638.4773228,
+    "hash": "a4e68f5dd50b25213d011dfecead0482"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\slot_registry.py": {
+    "mtime": 1777999906.703074,
+    "hash": "9cb8c6bab32f9251a8566d90642f1a23"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\strategies_v2\\__init__.py": {
+    "mtime": 1777692638.4713216,
+    "hash": "b9d89e895309b7652199092f052fec6c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_conflict_arbiter.py": {
+    "mtime": 1777866960.321363,
+    "hash": "5bb3b68cd9f3ace1e7b6123615ef928b"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_decision_engine.py": {
+    "mtime": 1777692638.4783235,
+    "hash": "fe57f183aa17b81624d68c1817b162c0"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_decision_state_contract.py": {
+    "mtime": 1777967260.21035,
+    "hash": "baf16626bcbc45d5d3b6c6c3a2a2fd02"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_dynamic_spacing.py": {
+    "mtime": 1777692638.4793222,
+    "hash": "a1ef4e5073848e4886f0a8ad9524de0d"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_planner_mode_selector.py": {
+    "mtime": 1777967270.2497766,
+    "hash": "f94a57871779e69ffb79bb77b5106be9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_reservation_stale_cleanup.py": {
+    "mtime": 1777866971.883059,
+    "hash": "925d1662245c72ce139c8f26e8cf796d"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_s3a_kernel_and_trace_contract.py": {
+    "mtime": 1777998208.752031,
+    "hash": "1f29e08e54486e94619dad993f2f949a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_scenarios_api.py": {
+    "mtime": 1777957846.1145616,
+    "hash": "6f0fb6e5c3bb9c65f9bec05a0494c95c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_scenario_model_validation.py": {
+    "mtime": 1777957769.6243756,
+    "hash": "fc3bf011ff3d9df83362fef7f90aa3c6"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_utilization_regression.py": {
+    "mtime": 1777865504.8518608,
+    "hash": "5c6f6b264d0174ace0af84fc015f57bb"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\tests\\test_v1_step_contract.py": {
+    "mtime": 1777879764.2477987,
+    "hash": "798d110541256a7aef994eea7a5029c8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\eslint.config.js": {
+    "mtime": 1777692638.4883199,
+    "hash": "a9a4087c724d4ea288991f8330c0f5a5"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\patch.js": {
+    "mtime": 1777692638.4943254,
+    "hash": "4263f525d08ee5b61d7a90c8ee6e27db"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\vite.config.ts": {
+    "mtime": 1777692638.5553246,
+    "hash": "2b2e5f3217b9c136efd209222bc4408f"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\main.tsx": {
+    "mtime": 1777692638.5413208,
+    "hash": "437b821adb1ab2f4ed3ac3dc693eb9a4"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\router.tsx": {
+    "mtime": 1777692638.5443218,
+    "hash": "e65ecd58b5e1ca84a0e37d46fa424044"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\routeTree.gen.ts": {
+    "mtime": 1777864666.6713548,
+    "hash": "1a73685f0e3789a11fc8646ea2cb5b1f"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\communication\\eventEmitter.ts": {
+    "mtime": 1777692638.4953198,
+    "hash": "535c287bec44936da39f81256e7d6c46"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\communication\\index.ts": {
+    "mtime": 1777692638.4963205,
+    "hash": "5b4400ef72c8aa8bfb25eaac91a56576"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\communication\\mqttService.ts": {
+    "mtime": 1777692638.4963205,
+    "hash": "dd4156b2929b22389ddce9a66e010c5f"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\Canvas2D.tsx": {
+    "mtime": 1777999325.4332147,
+    "hash": "ccbf193887dda7e7974606b7e9c5246e"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ControlBar.tsx": {
+    "mtime": 1777692638.4983218,
+    "hash": "7f7753f13c8f60b7d7e229dfb1e2ee54"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\Dashboard.tsx": {
+    "mtime": 1777865467.0804484,
+    "hash": "b58a3b34434ace6229876ec937eb0287"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\HeightLegend.tsx": {
+    "mtime": 1777692638.5003228,
+    "hash": "500e636d7b8284f3b144b580f5b41eb9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\IntegratedDashboard.tsx": {
+    "mtime": 1777967236.8074133,
+    "hash": "8d12b6d7354d33ca810e2cd3db2a8ebd"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\MessageLogPanel.tsx": {
+    "mtime": 1777692638.5013287,
+    "hash": "493dabe73c0938dd3fe0759cfc634de3"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\MetricsPanel.tsx": {
+    "mtime": 1777692638.5023212,
+    "hash": "9a94ff0f30fb0425f2a29e5eaaa6b0fd"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ScenarioSelector.tsx": {
+    "mtime": 1777958874.3678596,
+    "hash": "f338f6ce19884649c6139fcef88d2c11"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\StrategyPanel.tsx": {
+    "mtime": 1777999474.777107,
+    "hash": "89305e862a92fa6d46cabca1dc73fccf"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\Terrain3D.tsx": {
+    "mtime": 1777692638.504322,
+    "hash": "2fa0f86818fd2f057585ec7e4b534121"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\YardCanvas.tsx": {
+    "mtime": 1777692638.5053256,
+    "hash": "7ba531e8323445009d0b71fcf4f6226a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\accordion.tsx": {
+    "mtime": 1777692638.5063198,
+    "hash": "ce37963180fea4c5b9615b930afad90a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\alert-dialog.tsx": {
+    "mtime": 1777692638.5073211,
+    "hash": "6ce59b995dca29004ff35c52113478db"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\alert.tsx": {
+    "mtime": 1777692638.5073211,
+    "hash": "5a6d7c9719435e87ba5605fb5e7b0dc9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\aspect-ratio.tsx": {
+    "mtime": 1777692638.5083213,
+    "hash": "14c12661aad8c80328c86a18b506c088"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\avatar.tsx": {
+    "mtime": 1777692638.50932,
+    "hash": "1c3bd25e3806bbc82f9513b789b14a30"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\badge.tsx": {
+    "mtime": 1777692638.50932,
+    "hash": "f712eba47d4263bea5f224eacc090cb0"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\breadcrumb.tsx": {
+    "mtime": 1777692638.5103202,
+    "hash": "53f1ec4c38907530050142e3afa85cc7"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\button.tsx": {
+    "mtime": 1777692638.5113194,
+    "hash": "95aab63d268813e24494b1d958de5858"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\calendar.tsx": {
+    "mtime": 1777692638.5113194,
+    "hash": "96e6b176a517edb8b0facbb922a8c78c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\card.tsx": {
+    "mtime": 1777692638.5123193,
+    "hash": "053803f00d677727a20ac1af41ee599c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\carousel.tsx": {
+    "mtime": 1777692638.5133193,
+    "hash": "36dd085e09dbc3fe793c1708a6821204"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\chart.tsx": {
+    "mtime": 1777692638.5143192,
+    "hash": "e5bff896623339713c67d40cd8b8a74a"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\checkbox.tsx": {
+    "mtime": 1777692638.5143192,
+    "hash": "bc80ca5f0cad47c8a942a5d3c95895d8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\collapsible.tsx": {
+    "mtime": 1777692638.5153193,
+    "hash": "eda123bd06c97202f8cf1483e62d1580"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\command.tsx": {
+    "mtime": 1777692638.516325,
+    "hash": "9eba05d7f5d3fcfd642d9affb10b75c7"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\context-menu.tsx": {
+    "mtime": 1777692638.516325,
+    "hash": "69270233091977e4dc575681b1ba3e87"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\dialog.tsx": {
+    "mtime": 1777692638.517324,
+    "hash": "c603531f47c6857b5802cf1d9e167e0b"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\drawer.tsx": {
+    "mtime": 1777692638.5183227,
+    "hash": "ec99714627829d4a2ce0b03f3e2b3335"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\dropdown-menu.tsx": {
+    "mtime": 1777692638.5193255,
+    "hash": "1ae2005dbe29a013829fea9a6f1c67a6"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\form.tsx": {
+    "mtime": 1777692638.5203235,
+    "hash": "5a003832fca7d213e5b805ec214d819c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\hover-card.tsx": {
+    "mtime": 1777692638.5203235,
+    "hash": "82b2422c27dad853935c901f46966914"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\input-otp.tsx": {
+    "mtime": 1777692638.5213277,
+    "hash": "d2323e8455e70b784db91ae646529481"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\input.tsx": {
+    "mtime": 1777692638.5223224,
+    "hash": "bc58ae801e789ef86349bf93809c3534"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\label.tsx": {
+    "mtime": 1777692638.5223224,
+    "hash": "919969cdd3255dc8aaed6ea15dc75166"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\menubar.tsx": {
+    "mtime": 1777692638.52332,
+    "hash": "ac230528a1a992f476ed8f5706a10763"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\navigation-menu.tsx": {
+    "mtime": 1777692638.5243213,
+    "hash": "aaca5c27cd551ff9744fc89bd3044b41"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\pagination.tsx": {
+    "mtime": 1777692638.5253224,
+    "hash": "0e8f9422cf3b259d1cfa8ff36bf8363c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\popover.tsx": {
+    "mtime": 1777692638.5253224,
+    "hash": "4db76837576da0621b5810d9bea6767f"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\progress.tsx": {
+    "mtime": 1777692638.526322,
+    "hash": "77b2feba9a66fc89497a042b982bf7a1"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\radio-group.tsx": {
+    "mtime": 1777692638.5273218,
+    "hash": "0a7af4a8f2e0243992af81c8e8c58860"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\resizable.tsx": {
+    "mtime": 1777692638.5283241,
+    "hash": "1f93a1a9c4b1e770e17a34dcf67e939b"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\scroll-area.tsx": {
+    "mtime": 1777692638.5283241,
+    "hash": "004b51b8d40b7518596df3be92da6a17"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\select.tsx": {
+    "mtime": 1777692638.529323,
+    "hash": "077d570384d4ae231dd4bf4b25909fd5"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\separator.tsx": {
+    "mtime": 1777692638.5303204,
+    "hash": "81c2922b4be835b7455accbff8ec0ecd"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\sheet.tsx": {
+    "mtime": 1777692638.5303204,
+    "hash": "491b02a12606645844c308fe85c2734b"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\sidebar.tsx": {
+    "mtime": 1777692638.5313213,
+    "hash": "b3cbfec1edf2cdd652b7bd70e4a6b2c8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\skeleton.tsx": {
+    "mtime": 1777692638.5323188,
+    "hash": "07675852ac2c3e4380129369a31cb44d"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\slider.tsx": {
+    "mtime": 1777692638.533322,
+    "hash": "f51437b9ee04349e8af16e6366c28fee"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\sonner.tsx": {
+    "mtime": 1777692638.533322,
+    "hash": "bdd1b9b20e6cd7b6977d371849d4c1e9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\switch.tsx": {
+    "mtime": 1777692638.5343206,
+    "hash": "e36f4816956e06b38f81a563297acb8f"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\table.tsx": {
+    "mtime": 1777692638.5353196,
+    "hash": "51562ced5e90e7352ed2694c903bd0d3"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\tabs.tsx": {
+    "mtime": 1777692638.5353196,
+    "hash": "fa10a19c8fe9d457725fec9da0a12bed"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\textarea.tsx": {
+    "mtime": 1777692638.5363226,
+    "hash": "1b230007443ef12f365fbd94d443ea5c"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\toggle-group.tsx": {
+    "mtime": 1777692638.53732,
+    "hash": "e1a2ed5eafef66716f034692f9ad46f4"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\toggle.tsx": {
+    "mtime": 1777692638.53732,
+    "hash": "465e435f8ca359dce972ee90e7b898cf"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\components\\ui\\tooltip.tsx": {
+    "mtime": 1777692638.5383217,
+    "hash": "6dd894a539d5f97a0615c049be79a355"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\hooks\\use-mobile.tsx": {
+    "mtime": 1777692638.539323,
+    "hash": "1bb3ebac7752b497a78d34e341975bbd"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\lib\\utils.ts": {
+    "mtime": 1777692638.5403235,
+    "hash": "e3f848f1b39f863e6164cf58b5a8e752"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\p2p\\P2PChannel.ts": {
+    "mtime": 1777692638.5423193,
+    "hash": "b8e210e063bbe2991e4263acbc00c5e9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\routes\\index.tsx": {
+    "mtime": 1777866605.8379755,
+    "hash": "3be0a5dcace8b4891c280316bb2f709f"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\routes\\__root.tsx": {
+    "mtime": 1777692638.5453212,
+    "hash": "581b53d28b800983a0bb139788a367d8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\sim\\engine.ts": {
+    "mtime": 1777692638.547323,
+    "hash": "f29b7b3d228234027eebab8a274bc8e3"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\sim\\useSimulation.ts": {
+    "mtime": 1777692638.5483227,
+    "hash": "18ec9d368ef88bfa0e0a38b6e23f11dc"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\simulation\\config.ts": {
+    "mtime": 1777872607.765085,
+    "hash": "cebfcf5c2c8b4b506b4e5a666f9a2bf5"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\simulation\\dynamicSpacing.ts": {
+    "mtime": 1777692638.5503242,
+    "hash": "bfccf3180f5b5864edc49dc8ea21b424"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\simulation\\sounds.ts": {
+    "mtime": 1777692638.55132,
+    "hash": "a7eca47ef0c687ff06a77c4bece597ca"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\simulation\\store.ts": {
+    "mtime": 1777999895.0113437,
+    "hash": "42a8529352bc79d1aaeae4436e608ccc"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\src\\simulation\\types.ts": {
+    "mtime": 1777999217.79494,
+    "hash": "8dd88c7b9f291cca074f22eebad3a4ea"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\ADPS_FINAL_MASTER_CONTEXT.md": {
+    "mtime": 1777692638.4313211,
+    "hash": "351e7ea55cc46ae8c0beff10cf5f8dd6"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\AGENTS.md": {
+    "mtime": 1777988415.0411701,
+    "hash": "2ed67c68f28bc1ef95ac24167431d7e8"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\dump_approach.md": {
+    "mtime": 1777953439.2359536,
+    "hash": "f083f1f91540ed8f21e3cf00eeee8921"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\paul's claude dump summary.md": {
+    "mtime": 1777864059.6160958,
+    "hash": "1d3b1d14dc47681a56637a80ecb27798"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\README.md": {
+    "mtime": 1777692638.4333196,
+    "hash": "1375acbc30de1825cbcb22c0725dfe36"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\Senors.md": {
+    "mtime": 1777864059.6232877,
+    "hash": "929c4fb6bdd13a5753531a9f3ff7e6b9"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\hello.md": {
+    "mtime": 1777692638.4523218,
+    "hash": "b035d7c5a689844c74361f424a912153"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\backend\\requirements.txt": {
+    "mtime": 1777692638.4563222,
+    "hash": "5e311e702cc63ef981ad911bd8b816d6"
+  },
+  "C:\\Users\\nanda\\Desktop\\caterpillar\\frontend\\index.html": {
+    "mtime": 1777692638.4883199,
+    "hash": "366877602066aecd47164aa57eebab84"
+  }
+}

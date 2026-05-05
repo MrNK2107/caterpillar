@@ -17,6 +17,13 @@ from perception.sensor_model import SurfaceSensorModel
 from simulation.conflict_arbiter import ConflictArbiter, ConflictDecision
 from strategies.candidate_generation import CandidateSpot
 from strategies_v2.slot_registry import get_global_registry
+from strategies_v2.s3a_kernel import (
+    FallbackPolicyInput,
+    build_queue_forecast,
+    decide_fallback_policy,
+    select_lead_wave,
+    LeadWaveSelectorInput,
+)
 import math
 from threading import Lock
 
@@ -115,7 +122,7 @@ class DumpManager:
         self._trigger_diagnostics: Dict[str, Any] = {}
         self._strategy_divergence_steps: int = 0
         self._last_strategy_eval_wall_time: float = 0.0
-        self._last_successful_assignment_wall_time: float = 0.0
+        self._last_successful_assignment_sim_time: float = 0.0
         self._planner_mode: str = "FALLBACK"
         self._planner_mode_reason: str = "initialization"
         self._planner_mode_candidate: str = "FALLBACK"
@@ -126,6 +133,21 @@ class DumpManager:
         self._spacing_pattern_status: str = "inactive"
         self._wave_id: int = 0
         self._wave_lead_size: int = 3
+        self._queued_steps: Dict[str, int] = {}
+        self._failed_assignment_attempts: Dict[str, int] = {}
+        self._replan_attempts: Dict[str, int] = {}
+
+    def _fleet_size_bands(self) -> Tuple[int, int]:
+        small = 0
+        large = 0
+        for truck in self.trucks.values():
+            model = getattr(truck, "model", None)
+            payload = float(getattr(model, "payload_tonnes", 0.0))
+            if payload >= 220.0:
+                large += 1
+            else:
+                small += 1
+        return small, large
 
     @staticmethod
     def _pile_clearance_radius(pile_length_m: float, pile_width_m: float) -> float:
@@ -193,7 +215,7 @@ class DumpManager:
             self._trigger_diagnostics = {}
             self._strategy_divergence_steps = 0
             self._last_strategy_eval_wall_time = 0.0
-            self._last_successful_assignment_wall_time = 0.0
+            self._last_successful_assignment_sim_time = 0.0
             self._planner_mode = "FALLBACK"
             self._planner_mode_reason = "initialization"
             self._planner_mode_candidate = "FALLBACK"
@@ -202,6 +224,9 @@ class DumpManager:
             self._planner_phase_reason = "initialization"
             self._spacing_pattern_status = "inactive"
             self._wave_id = 0
+            self._queued_steps = {}
+            self._failed_assignment_attempts = {}
+            self._replan_attempts = {}
 
     def set_scenario(self, scenario: dict) -> None:
         material_type = scenario.get("material_type", "ore")
@@ -689,15 +714,20 @@ class DumpManager:
 
         if self._planner_mode == "S3A":
             dump_count = len(self.metrics.dump_records)
-            if dump_count < self._wave_lead_size:
+            candidate_anchor_count = 0
+            try:
+                candidate_anchor_count = int(get_global_registry().health("bootstrap_far_end").get("candidate_anchor_count", 0))
+            except Exception:
+                candidate_anchor_count = 0
+            if candidate_anchor_count > 0:
                 self._planner_phase = "bootstrap_far_end"
-                self._planner_phase_reason = "far-end bootstrap wave"
+                self._planner_phase_reason = "anchor-first until anchor pool exhausted"
             elif dump_count < max(self._wave_lead_size * 3, 8):
                 self._planner_phase = "stagger_fill"
-                self._planner_phase_reason = "alternate stagger fill wave"
+                self._planner_phase_reason = "anchor pool exhausted; stagger fill progression"
             else:
                 self._planner_phase = "backfill"
-                self._planner_phase_reason = "progressive backfill phase"
+                self._planner_phase_reason = "no anchor capacity; progressive backfill phase"
             self._spacing_pattern_status = "alternate_active"
             self._wave_id = dump_count // max(1, self._wave_lead_size)
             return
@@ -777,6 +807,38 @@ class DumpManager:
             return source
         return self._candidate_source_for_strategy(strategy_name)
 
+    @staticmethod
+    def _candidate_metadata(candidate: CandidateSpot) -> Dict[str, Any]:
+        raw = getattr(candidate, "assignment_metadata", None)
+        if isinstance(raw, dict):
+            return raw
+        return {}
+
+    def _trace_field(self, candidate: CandidateSpot, key: str, default: Any) -> Any:
+        metadata = self._candidate_metadata(candidate)
+        if key in metadata:
+            return metadata[key]
+        return default
+
+    def _fallback_allowed(self, truck_id: str) -> Tuple[bool, str]:
+        has_any_success = self._last_successful_assignment_sim_time > 0
+        recent_success_age_s = (
+            max(0.0, float(self.simulation_time_sec - self._last_successful_assignment_sim_time))
+            if has_any_success
+            else 0.0
+        )
+        policy = decide_fallback_policy(
+            FallbackPolicyInput(
+                planner_mode=self._planner_mode,
+                planner_phase=self._planner_phase,
+                has_any_success=has_any_success,
+                seconds_since_success=recent_success_age_s,
+                failed_assignment_attempts=int(self._failed_assignment_attempts.get(truck_id, 0)),
+                replan_attempts=int(self._replan_attempts.get(truck_id, 0)),
+            )
+        )
+        return policy.allowed, policy.reason
+
     def _build_candidate_rejection_summary(self) -> Dict[str, int]:
         summary = {
             "step_budget": 0,
@@ -811,10 +873,34 @@ class DumpManager:
 
     def _max_assignments_for_current_phase(self) -> int:
         if self._planner_phase == "bootstrap_far_end":
-            return 3
+            return max(4, min(8, len(self.truck_agents)))
         if self._planner_phase == "stagger_fill":
-            return 2
+            return max(3, min(6, len(self.truck_agents)))
         return 1
+
+    def _ensure_slot_pool_not_stuck(self) -> None:
+        """
+        Invariant recovery:
+        if anchor candidates are zero while many slots are marked released,
+        recover them to FREE to avoid deadlock.
+        """
+        try:
+            registry = get_global_registry()
+            health = registry.health(self._planner_phase)
+            anchors = int(health.get("candidate_anchor_count", 0))
+            summary = registry.slot_ledger_summary()
+            released = int((summary.get("counts") or {}).get("released", 0))
+            if anchors == 0 and released > 0:
+                recovered = registry.recover_released_slots()
+                if recovered > 0:
+                    logger.warning(
+                        "slot_pool_recovered planner_phase=%s recovered=%d released_before=%d",
+                        self._planner_phase,
+                        recovered,
+                        released,
+                    )
+        except Exception:
+            logger.debug("slot pool invariant recovery failed", exc_info=True)
 
     def _finalize_strategy_transition_if_ready(self) -> None:
         if not self._strategy_transition_pending:
@@ -876,6 +962,42 @@ class DumpManager:
             wave_id=self._wave_id,
         )
 
+    def _queue_forecast_summary(self) -> Dict[str, Any]:
+        queue_rows: List[Tuple[str, float, float, str]] = []
+        for truck_id, truck in self.trucks.items():
+            agent = self.truck_agents.get(truck_id)
+            if not agent:
+                continue
+            if agent.state not in {"REQUESTING_DUMP", "WAITING", "IDLE"}:
+                continue
+            dx = 0.0
+            dy = 0.0
+            if truck.current_position and self.entry_point:
+                dx = float(truck.current_position.x) - float(self.entry_point.x)
+                dy = float(truck.current_position.y) - float(self.entry_point.y)
+            eta = math.hypot(dx, dy) / max(1.0, float(getattr(truck, "speed", 4.0)))
+            pile_width = float(getattr(getattr(truck, "model", None), "pile_width_m", 5.5))
+            pile_length = float(getattr(getattr(truck, "model", None), "pile_length_m", 7.5))
+            radius = math.hypot(pile_width / 2.0, pile_length / 2.0)
+            if radius >= 4.6:
+                class_name = "XL"
+            elif radius >= 3.9:
+                class_name = "L"
+            elif radius >= 3.2:
+                class_name = "M"
+            else:
+                class_name = "S"
+            queue_rows.append((truck_id, eta, float(getattr(truck, "payload_tonnes", 120.0)), class_name))
+        forecast = build_queue_forecast(queue_rows)
+        class_counts: Dict[str, int] = {}
+        for row in forecast:
+            class_counts[row["truck_class"]] = class_counts.get(row["truck_class"], 0) + 1
+        return {
+            "window_size": len(forecast),
+            "class_counts": class_counts,
+            "entries": forecast[:12],
+        }
+
     def set_packing_objective_weights(self, weights: dict) -> None:
         self.scenario.setdefault("packing_objective", {})
         self.scenario["packing_objective"].update({
@@ -886,6 +1008,10 @@ class DumpManager:
         })
     def _has_swept_collision(self, path_points: List[Tuple[float, float]], candidate, truck) -> bool:
         if not path_points or len(path_points) < 2:
+            return False
+        if self._planner_phase == "bootstrap_far_end" and len(self.metrics.dump_records) == 0:
+            # EOD unblocker: first-wave anchors should not be rejected by reverse
+            # sweep against transient near-entry reservations.
             return False
             
         targetSpot = (candidate.x, candidate.y)
@@ -996,12 +1122,20 @@ class DumpManager:
             target_y = self.entry_point.y + lane_offset
         target_point = Point(target_x, target_y)
         if not (self.yard_polygon.contains(target_point) or self.yard_polygon.touches(target_point)):
-            target_x = self.yard_polygon.centroid.x
-            target_y = self.yard_polygon.centroid.y + lane_offset * 0.5
-            target_point = Point(target_x, target_y)
+            # S3A emergency fallback should still bias far-end edge, never centroid drift.
+            vertices = list(self.yard_polygon.exterior.coords)
+            if vertices:
+                far = max(vertices, key=lambda p: math.hypot(p[0] - float(self.entry_point.x), p[1] - float(self.entry_point.y)))
+                target_x = float(far[0]) - 4.0
+                target_y = float(far[1]) + lane_offset * 0.20
+                target_point = Point(target_x, target_y)
             if not (self.yard_polygon.contains(target_point) or self.yard_polygon.touches(target_point)):
-                target_x = self.yard_polygon.centroid.x
-                target_y = self.yard_polygon.centroid.y
+                # Last-resort fallback for non-S3A modes only.
+                if self._planner_mode != "S3A":
+                    target_x = self.yard_polygon.centroid.x
+                    target_y = self.yard_polygon.centroid.y
+                else:
+                    return None
 
         row, col = self.surface_map._to_index(target_x, target_y)
         row = max(0, min(self.surface_map.rows - 1, row))
@@ -1017,6 +1151,17 @@ class DumpManager:
             slope=0.0,
             score=0.1,
         )
+        candidate.assignment_metadata = {
+            "planner_mode": "FALLBACK",
+            "planner_phase": self._planner_phase,
+            "slot_phase": "cleanup",
+            "slot_lifecycle_state": "assigned",
+            "reserved_class": "N/A",
+            "maneuver_feasible": True,
+            "surface_gate_results": {},
+            "candidate_validation": {"passed": True, "reasons": []},
+            "fallback_policy_triggered": True,
+        }
         return candidate, [position, (target_x, target_y)]
 
     def _process_timeline_events(self) -> None:
@@ -1071,12 +1216,43 @@ class DumpManager:
             self._evaluate_strategy_controller()
             self._update_trigger_diagnostics(self._active_strategy)
             stage_timings_ms["strategy_eval"] = (time.perf_counter() - t0) * 1000.0
+            self._ensure_slot_pool_not_stuck()
 
             truck_ids = sorted(list(self.truck_agents.keys()), key=lambda t: int("".join(ch for ch in str(t) if ch.isdigit()) or "0"))
             assignment_attempts = 0
             max_assignments_this_step = self._max_assignments_for_current_phase()
             requesting_ids = [tid for tid in truck_ids if self.truck_agents.get(tid) and self.truck_agents[tid].state == "REQUESTING_DUMP"]
-            lead_wave_ids = set(requesting_ids[: self._wave_lead_size]) if self._planner_phase == "bootstrap_far_end" else set(requesting_ids)
+            for tid in truck_ids:
+                self._queued_steps.setdefault(tid, 0)
+                self._failed_assignment_attempts.setdefault(tid, 0)
+                self._replan_attempts.setdefault(tid, 0)
+                if tid in requesting_ids:
+                    self._queued_steps[tid] += 1
+                else:
+                    self._queued_steps[tid] = 0
+            queue_values = [int(v) for v in self._queued_steps.values()] or [0]
+            queue_values.sort()
+            queue_p95_idx = min(len(queue_values) - 1, int(0.95 * max(0, len(queue_values) - 1)))
+            queue_p95 = int(queue_values[queue_p95_idx]) if queue_values else 0
+            small_count, large_count = self._fleet_size_bands()
+            try:
+                get_global_registry().set_spacing_control(
+                    queue_p95=queue_p95,
+                    small_count=small_count,
+                    large_count=large_count,
+                    planner_phase=self._planner_phase,
+                )
+            except Exception:
+                logger.debug("failed to refresh spacing control", exc_info=True)
+            lead_wave = select_lead_wave(
+                LeadWaveSelectorInput(
+                    requesting_ids=requesting_ids,
+                    queued_steps=self._queued_steps,
+                    wave_lead_size=self._wave_lead_size,
+                    planner_phase=self._planner_phase,
+                )
+            )
+            lead_wave_ids = set(lead_wave.lead_ids)
             for truck_id in truck_ids:
                 elapsed_ms = (time.perf_counter() - step_started) * 1000.0
                 if elapsed_ms >= STEP_BUDGET_MS:
@@ -1108,38 +1284,11 @@ class DumpManager:
                 )
 
                 if agent.state == "REQUESTING_DUMP":
-                    if self._planner_phase == "bootstrap_far_end" and truck_id not in lead_wave_ids:
-                        self._last_assignment_diagnostics[truck_id] = {
-                            "status": "QUEUED",
-                            "reason": "queued_for_wave: awaiting lead-wave far-end commits",
-                            "attempts": 0,
-                            "backoff_steps": int(agent.assignment_retry_wait_steps),
-                            "assignment_trace": {
-                                "selected_strategy": self._active_strategy,
-                                "selected_planner_mode": self._planner_mode,
-                                "strategy_reason": self._active_strategy_reason,
-                                "candidate_source": self._candidate_source_for_strategy(self._active_strategy),
-                                "selected_xy": None,
-                                "candidate_score": None,
-                                "explainability": "queued_for_wave",
-                                "anchor_band": "far_end",
-                                "wave_id": self._wave_id,
-                                "slot_parity": "N/A",
-                                "slot_id": "N/A",
-                                "row_id": "N/A",
-                                "slot_state": "queued",
-                                "reserve_class": "N/A",
-                                "fallback_reason": "none",
-                                "failed_constraints": [],
-                                "fallback_stage": "far_end_strict",
-                                "required_pitch_m": 0.0,
-                                "actual_neighbor_pitch_m": 0.0,
-                                "queue_state": "queued_for_wave",
-                                "reservation_blockers_count": 0,
-                                "rejection_causes": ["queued_for_wave"],
-                            },
-                        }
-                        continue
+                    force_attempt = (
+                        self._planner_phase == "bootstrap_far_end"
+                        and int(self._queued_steps.get(truck_id, 0)) >= 20
+                    )
+                    _ = force_attempt
 
                     if assignment_attempts >= max_assignments_this_step:
                         self._last_assignment_diagnostics[truck_id] = {
@@ -1170,6 +1319,10 @@ class DumpManager:
                                 "queue_state": "awaiting_slot_release",
                                 "reservation_blockers_count": 0,
                                 "rejection_causes": ["queued_for_wave"],
+                                "assignment_outcome_type": "S3A_HELD",
+                                "surface_stage": "anchor_build",
+                                "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                "eligible_slot_count": 0,
                             },
                         }
                         continue
@@ -1195,6 +1348,10 @@ class DumpManager:
                                 "candidate_score": None,
                                 "explainability": "assignment paused until strategy transition completes",
                                 "rejection_causes": ["transition_pending"],
+                                "assignment_outcome_type": "S3A_HELD",
+                                "surface_stage": "anchor_build",
+                                "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                "eligible_slot_count": 0,
                             },
                         }
                         continue
@@ -1221,9 +1378,13 @@ class DumpManager:
                         candidate = assignment.candidate
                         path_points = assignment.path_points
                         if candidate is None:
+                            self._failed_assignment_attempts[truck_id] = int(self._failed_assignment_attempts.get(truck_id, 0)) + 1
+                            self._replan_attempts[truck_id] = int(self._replan_attempts.get(truck_id, 0)) + 1
                             continue
                         
                         if self._has_swept_collision(path_points, candidate, truck):
+                            self._failed_assignment_attempts[truck_id] = int(self._failed_assignment_attempts.get(truck_id, 0)) + 1
+                            self._replan_attempts[truck_id] = int(self._replan_attempts.get(truck_id, 0)) + 1
                             # Reject this candidate due to swept-area collision
                             self._last_assignment_diagnostics[truck_id] = {
                                 "status": "REJECTED",
@@ -1248,6 +1409,19 @@ class DumpManager:
                                     "required_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "required_pitch_m", "0") or 0.0),
                                     "actual_neighbor_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "actual_neighbor_pitch_m", "0") or 0.0),
                                     "rejection_causes": ["swept_collision"],
+                                    "planner_mode": self._trace_field(candidate, "planner_mode", self._planner_mode),
+                                    "planner_phase": self._trace_field(candidate, "planner_phase", self._planner_phase),
+                                    "slot_phase": self._trace_field(candidate, "slot_phase", "anchor"),
+                                    "slot_lifecycle_state": self._trace_field(candidate, "slot_lifecycle_state", "held"),
+                                    "reserved_class": self._trace_field(candidate, "reserved_class", "N/A"),
+                                    "maneuver_feasible": self._trace_field(candidate, "maneuver_feasible", True),
+                                    "surface_gate_results": self._trace_field(candidate, "surface_gate_results", {}),
+                                    "candidate_validation": self._trace_field(candidate, "candidate_validation", {"passed": False, "reasons": ["swept_collision"]}),
+                                    "fallback_policy_triggered": self._trace_field(candidate, "fallback_policy_triggered", False),
+                                    "assignment_outcome_type": "S3A_REPLAN",
+                                    "surface_stage": self._trace_field(candidate, "surface_stage", "anchor_build"),
+                                    "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                    "eligible_slot_count": 1,
                                 },
                             }
                             continue
@@ -1268,6 +1442,8 @@ class DumpManager:
                             distance_to_commit=max(0.0, float(len(path_points))),
                         )
                         if decision.decision in {"HOLD", "YIELD", "SERIALIZE"}:
+                            self._failed_assignment_attempts[truck_id] = int(self._failed_assignment_attempts.get(truck_id, 0)) + 1
+                            self._replan_attempts[truck_id] = int(self._replan_attempts.get(truck_id, 0)) + 1
                             agent.apply_block_substate("WAITING_YIELD" if decision.decision == "YIELD" else "SERIALIZED_WAIT" if decision.decision == "SERIALIZE" else "WAITING_REPLAN")
                             agent.update_local_state(position, "WAITING", reserved_cells=self._reserved_cells_for_truck(truck_id), eta=decision.retry_after_s)
                             stage_timings_ms["reservation_check"] = stage_timings_ms.get("reservation_check", 0.0) + (
@@ -1301,6 +1477,19 @@ class DumpManager:
                                     "queue_state": "awaiting_conflict_clear",
                                     "reservation_blockers_count": len(blockers),
                                     "rejection_causes": ["conflict_hold"],
+                                    "planner_mode": self._trace_field(candidate, "planner_mode", self._planner_mode),
+                                    "planner_phase": self._trace_field(candidate, "planner_phase", self._planner_phase),
+                                    "slot_phase": self._trace_field(candidate, "slot_phase", "anchor"),
+                                    "slot_lifecycle_state": self._trace_field(candidate, "slot_lifecycle_state", "held"),
+                                    "reserved_class": self._trace_field(candidate, "reserved_class", "N/A"),
+                                    "maneuver_feasible": self._trace_field(candidate, "maneuver_feasible", True),
+                                    "surface_gate_results": self._trace_field(candidate, "surface_gate_results", {}),
+                                    "candidate_validation": self._trace_field(candidate, "candidate_validation", {"passed": False, "reasons": ["conflict_hold"]}),
+                                    "fallback_policy_triggered": self._trace_field(candidate, "fallback_policy_triggered", False),
+                                    "assignment_outcome_type": "S3A_HELD",
+                                    "surface_stage": self._trace_field(candidate, "surface_stage", "anchor_build"),
+                                    "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                    "eligible_slot_count": 1,
                                 },
                             }
                             continue
@@ -1354,13 +1543,74 @@ class DumpManager:
                                 "fallback_stage": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_stage", "far_end_strict"),
                                 "required_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "required_pitch_m", "0") or 0.0),
                                 "actual_neighbor_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "actual_neighbor_pitch_m", "0") or 0.0),
-                                "queue_state": "assigned",
-                                "reservation_blockers_count": 0,
-                                "rejection_causes": [],
-                            },
-                        }
-                        self._last_successful_assignment_wall_time = time.time()
+                                    "queue_state": "assigned",
+                                    "reservation_blockers_count": 0,
+                                    "rejection_causes": [],
+                                    "assignment_outcome_type": "S3A_ASSIGNED",
+                                    "surface_stage": self._trace_field(candidate, "surface_stage", "anchor_build"),
+                                    "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                    "eligible_slot_count": 1,
+                                    "predicted_footprint_m2": self._trace_field(candidate, "predicted_footprint_m2", 0.0),
+                                    "predicted_footprint_dims_m": self._trace_field(candidate, "predicted_footprint_dims_m", {}),
+                                    "volume_basis": self._trace_field(candidate, "volume_basis", {}),
+                                    "maneuver_gate_results": self._trace_field(candidate, "maneuver_gate_results", {}),
+                                    "assignment_blocker_code": "NONE",
+                                },
+                            }
+                        self._failed_assignment_attempts[truck_id] = 0
+                        self._replan_attempts[truck_id] = 0
+                        self._queued_steps[truck_id] = 0
+                        self._last_successful_assignment_sim_time = float(self.simulation_time_sec)
                     else:
+                        self._failed_assignment_attempts[truck_id] = int(self._failed_assignment_attempts.get(truck_id, 0)) + 1
+                        self._replan_attempts[truck_id] = int(self._replan_attempts.get(truck_id, 0)) + 1
+                        fallback_allowed, fallback_policy_reason = self._fallback_allowed(truck_id)
+                        if not fallback_allowed:
+                            self._last_assignment_diagnostics[truck_id] = {
+                                "status": "QUEUED",
+                                "reason": f"S3A hold: {fallback_policy_reason}",
+                                "attempts": int(agent.block_counters.get("replan_attempts", 0)) + 1,
+                                "backoff_steps": int(agent.assignment_retry_wait_steps),
+                                "assignment_trace": {
+                                    "selected_strategy": self._active_strategy,
+                                    "selected_planner_mode": self._planner_mode,
+                                    "strategy_reason": self._active_strategy_reason,
+                                    "candidate_source": "centralized_row_slot",
+                                    "selected_xy": None,
+                                    "candidate_score": None,
+                                    "explainability": "holding for true S3A slot assignment",
+                                    "anchor_band": "unknown",
+                                    "wave_id": int(self._wave_id),
+                                    "slot_parity": "N/A",
+                                    "slot_id": "N/A",
+                                    "row_id": "N/A",
+                                    "slot_state": "queued",
+                                    "reserve_class": "N/A",
+                                    "fallback_reason": "none",
+                                    "failed_constraints": ["s3a_policy_hold"],
+                                    "fallback_stage": "far_end_strict",
+                                    "required_pitch_m": 0.0,
+                                    "actual_neighbor_pitch_m": 0.0,
+                                    "queue_state": "awaiting_slot_release",
+                                    "reservation_blockers_count": 0,
+                                    "rejection_causes": ["s3a_policy_hold"],
+                                    "planner_mode": self._planner_mode,
+                                    "planner_phase": self._planner_phase,
+                                    "slot_phase": "anchor",
+                                    "slot_lifecycle_state": "candidate",
+                                    "reserved_class": "N/A",
+                                    "maneuver_feasible": False,
+                                    "surface_gate_results": {},
+                                    "candidate_validation": {"passed": False, "reasons": ["s3a_policy_hold"]},
+                                    "fallback_policy_triggered": False,
+                                    "assignment_outcome_type": "S3A_HELD",
+                                    "surface_stage": "anchor_build",
+                                    "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                    "eligible_slot_count": 0,
+                                },
+                            }
+                            continue
+
                         fallback = self._fast_fallback_assignment(truck_id, position)
                         if fallback:
                             fallback_candidate, fallback_path = fallback
@@ -1409,9 +1659,25 @@ class DumpManager:
                                     "queue_state": "assigned",
                                     "reservation_blockers_count": 0,
                                     "rejection_causes": [],
+                                    "planner_mode": self._trace_field(fallback_candidate, "planner_mode", "FALLBACK"),
+                                    "planner_phase": self._trace_field(fallback_candidate, "planner_phase", self._planner_phase),
+                                    "slot_phase": self._trace_field(fallback_candidate, "slot_phase", "cleanup"),
+                                    "slot_lifecycle_state": self._trace_field(fallback_candidate, "slot_lifecycle_state", "assigned"),
+                                    "reserved_class": self._trace_field(fallback_candidate, "reserved_class", "N/A"),
+                                    "maneuver_feasible": self._trace_field(fallback_candidate, "maneuver_feasible", True),
+                                    "surface_gate_results": self._trace_field(fallback_candidate, "surface_gate_results", {}),
+                                    "candidate_validation": self._trace_field(fallback_candidate, "candidate_validation", {"passed": True, "reasons": []}),
+                                    "fallback_policy_triggered": True,
+                                    "fallback_policy_reason": fallback_policy_reason,
+                                    "assignment_outcome_type": "FALLBACK_ASSIGNED",
+                                    "surface_stage": self._trace_field(fallback_candidate, "surface_stage", "anchor_build"),
+                                    "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                    "eligible_slot_count": 0,
                                 },
                             }
-                            self._last_successful_assignment_wall_time = time.time()
+                            self._failed_assignment_attempts[truck_id] = 0
+                            self._queued_steps[truck_id] = 0
+                            self._last_successful_assignment_sim_time = float(self.simulation_time_sec)
                             continue
                         self._last_assignment_diagnostics[truck_id] = {
                             "status": "NO_ASSIGNMENT",
@@ -1441,6 +1707,19 @@ class DumpManager:
                                 "queue_state": "awaiting_slot_release",
                                 "reservation_blockers_count": 0,
                                 "rejection_causes": ["no_valid_candidate"],
+                                "planner_mode": self._planner_mode,
+                                "planner_phase": self._planner_phase,
+                                "slot_phase": "anchor",
+                                "slot_lifecycle_state": "candidate",
+                                "reserved_class": "N/A",
+                                "maneuver_feasible": False,
+                                "surface_gate_results": {},
+                                "candidate_validation": {"passed": False, "reasons": ["no_valid_candidate"]},
+                                "fallback_policy_triggered": False,
+                                "assignment_outcome_type": "S3A_REPLAN",
+                                "surface_stage": "anchor_build",
+                                "replan_attempt_count": int(self._replan_attempts.get(truck_id, 0)),
+                                "eligible_slot_count": 0,
                             },
                         }
 
@@ -1793,7 +2072,9 @@ class DumpManager:
                 scenario_id = f"AUTO-{self._planner_mode}"
                 scenario_name = f"auto mode {self._planner_mode.lower()}"
             try:
-                slot_health = get_global_registry().health(self._planner_phase)
+                registry = get_global_registry()
+                slot_health = registry.health(self._planner_phase)
+                slot_ledger_summary = registry.slot_ledger_summary()
             except Exception:
                 slot_health = {
                     "built": False,
@@ -1803,17 +2084,110 @@ class DumpManager:
                     "active_row_pointer": 0,
                     "stats": {"total": 0, "free": 0, "reserved": 0, "dumped": 0, "rows": 0},
                 }
+                slot_ledger_summary = {
+                    "counts": {},
+                    "rows": 0,
+                    "by_class": {},
+                    "total_slots": 0,
+                }
+            queue_forecast_summary = self._queue_forecast_summary()
+            try:
+                spacing_control = get_global_registry().spacing_control_snapshot()
+            except Exception:
+                spacing_control = {
+                    "backfill_gap_multiplier": 1.0,
+                    "effective_backfill_pitch_m": 0.0,
+                    "queue_pressure_band": "low",
+                    "fleet_pressure_band": "mixed",
+                }
+            queue_ages = [int(v) for v in self._queued_steps.values()] if self._queued_steps else [0]
+            queue_ages_sorted = sorted(queue_ages)
+            p95_idx = min(len(queue_ages_sorted) - 1, int(0.95 * max(0, len(queue_ages_sorted) - 1)))
+            queue_age_stats = {
+                "max": queue_ages_sorted[-1] if queue_ages_sorted else 0,
+                "p95": queue_ages_sorted[p95_idx] if queue_ages_sorted else 0,
+                "avg": float(sum(queue_ages_sorted)) / max(1, len(queue_ages_sorted)),
+            }
+            wave_progress = {
+                "wave_id": self._wave_id,
+                "queued_trucks": len([k for k, v in self._queued_steps.items() if v > 0]),
+                "successful_assignments_recent": int(sum(1 for d in self._last_assignment_diagnostics.values() if d.get("status") in {"ASSIGNED", "ASSIGNED_FALLBACK"})),
+            }
+            s3a_retry_budget = {
+                "failed_assignment_attempts": dict(self._failed_assignment_attempts),
+                "replan_attempts": dict(self._replan_attempts),
+            }
+            active_far_end_rows = int(slot_health.get("candidate_anchor_count", 0))
             invariant_status = {
                 "far_end_gate": bool(self._planner_phase == "bootstrap_far_end" and slot_health.get("candidate_anchor_count", 0) > 0),
                 "parity_gate": bool(self._planner_mode == "S3A"),
                 "anchor_gap_gate": bool(slot_health.get("built", False)),
             }
+            motion_profile = "balanced_fast"
+            for truck_status in trucks_status.values():
+                runtime_diag = truck_status.get("runtime_diagnostics")
+                if isinstance(runtime_diag, dict) and runtime_diag.get("motion_profile"):
+                    motion_profile = str(runtime_diag.get("motion_profile"))
+                    break
+            for diag in self._last_assignment_diagnostics.values():
+                trace = diag.get("assignment_trace")
+                if not isinstance(trace, dict):
+                    continue
+                trace.setdefault("effective_backfill_pitch_m", float(spacing_control.get("effective_backfill_pitch_m", 0.0)))
+                trace.setdefault("backfill_gap_multiplier", float(spacing_control.get("backfill_gap_multiplier", 1.0)))
+                trace.setdefault("queue_pressure_band", str(spacing_control.get("queue_pressure_band", "low")))
+                trace.setdefault("fleet_pressure_band", str(spacing_control.get("fleet_pressure_band", "mixed")))
+                trace.setdefault("predicted_footprint_m2", 0.0)
+                trace.setdefault("predicted_footprint_dims_m", {"rx": 0.0, "ry": 0.0, "peak": 0.0})
+                trace.setdefault("volume_basis", {})
+                trace.setdefault("maneuver_gate_results", {})
+                if "assignment_blocker_code" not in trace:
+                    reasons = []
+                    validation = trace.get("candidate_validation")
+                    if isinstance(validation, dict):
+                        reasons = validation.get("reasons", []) or []
+                    if isinstance(reasons, list) and reasons:
+                        first_reason = str(reasons[0]).upper()
+                        if "CONFLICT" in first_reason:
+                            trace["assignment_blocker_code"] = "PATH_CONFLICT"
+                        elif "TURN" in first_reason or "MANEUVER" in first_reason:
+                            trace["assignment_blocker_code"] = "TURN_RADIUS_FAIL"
+                        elif "QUEUE" in first_reason or "POLICY" in first_reason:
+                            trace["assignment_blocker_code"] = "QUEUE_GOVERNOR"
+                        else:
+                            trace["assignment_blocker_code"] = first_reason
+                    else:
+                        trace["assignment_blocker_code"] = "NONE"
+            committed_dumps = [
+                {
+                    "x": float(rs.get("x", 0.0)),
+                    "y": float(rs.get("y", 0.0)),
+                    "radius": float(rs.get("radius", 0.0)),
+                    "truck_id": str(rs.get("truck_id", "")),
+                    "timestamp_sec": float(self.simulation_time_sec),
+                }
+                for rs in self.reserved_spots
+                if rs.get("status") == "completed"
+            ]
+            reserved_dump_slots = [
+                {
+                    "x": float(rs.get("x", 0.0)),
+                    "y": float(rs.get("y", 0.0)),
+                    "radius": float(rs.get("radius", 0.0)),
+                    "truck_id": str(rs.get("truck_id", "")),
+                    "timestamp_sec": float(self.simulation_time_sec),
+                }
+                for rs in self.reserved_spots
+                if rs.get("status") == "reserved"
+            ]
 
             return {
                 "trucks": trucks_status,
                 "zones": zones_status,
                 "metrics": self.metrics.snapshot(self.surface_map, self.yard_polygon),
                 "blocked_cells": blocked_cells,
+                "committed_dumps": committed_dumps,
+                "reserved_dump_slots": reserved_dump_slots,
                 "simulation_time_sec": self.simulation_time_sec,
                 "surface_layers": surface_layers,
                 "strategy": {
@@ -1857,11 +2231,29 @@ class DumpManager:
                     "transition_pending": self._strategy_transition_pending,
                     "pending_strategy": self._pending_strategy if self._strategy_transition_pending else None,
                     "last_strategy_eval_ts": self._last_strategy_eval_wall_time,
-                    "last_successful_assignment_ts": self._last_successful_assignment_wall_time,
+                    "last_successful_assignment_ts": self._last_successful_assignment_sim_time,
                     "slot_system_health": slot_health,
+                    "slot_ledger_summary": slot_ledger_summary,
+                    "queue_forecast_summary": queue_forecast_summary,
+                    "wave_progress": wave_progress,
+                    "queue_age_stats": queue_age_stats,
+                    "s3a_retry_budget": s3a_retry_budget,
+                    "active_far_end_rows": active_far_end_rows,
                     "active_row_id": int(slot_health.get("active_row_pointer", 0)),
                     "far_end_gate_active": self._planner_phase == "bootstrap_far_end",
                     "s3a_invariant_status": invariant_status,
+                    "spacing_control": spacing_control,
+                    "backfill_unlock_state": {
+                        "phase": self._planner_phase,
+                        "candidate_anchor_count": int(slot_health.get("candidate_anchor_count", 0)),
+                        "candidate_backfill_count": int(slot_health.get("candidate_backfill_count", 0)),
+                        "queue_pressure_band": str(spacing_control.get("queue_pressure_band", "low")),
+                    },
+                    "collision_horizon_summary": {
+                        "active_conflicts": len(self.conflict_arbiter.active_conflicts()),
+                        "recent_deadlocks": len(self.conflict_arbiter.recent_deadlocks()),
+                    },
+                    "committed_dump_count": len(committed_dumps),
                 },
                 "scenario": {
                     "id": scenario_id,
@@ -1873,6 +2265,7 @@ class DumpManager:
                 "traffic_stats": self.conflict_arbiter.stats(),
                 "runtime": {
                     "planner_profile": self.planner_profile,
+                    "motion_profile": motion_profile,
                     "last_step_ms": self._last_step_ms,
                     "step_budget_ms": STEP_BUDGET_MS,
                     "step_budget_exceeded": self._last_step_budget_exceeded,
@@ -1881,6 +2274,8 @@ class DumpManager:
                 },
                 "truck_assignment_diagnostics": self._last_assignment_diagnostics,
                 "candidate_rejection_summary": self._build_candidate_rejection_summary(),
+                "slot_ledger_summary": slot_ledger_summary,
+                "queue_forecast_summary": queue_forecast_summary,
             }
 
     def release_truck_reservation(self, truck_id: str) -> None:

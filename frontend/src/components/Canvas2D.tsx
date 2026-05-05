@@ -9,7 +9,7 @@ const SNAP_RADIUS = 14;
 const Canvas2D: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const {
-    grid, trucks, blockedCells, tick, piles, assignmentDiagnostics,
+    grid, trucks, blockedCells, tick, piles, assignmentDiagnostics, committedDumps, reservedDumpSlots,
     isDrawing, polygonVertices, settingEntryPoint, entryPoint, yardPolygon,
     addPolygonVertex, setEntryPoint, finishPolygon
   } = useSimulationStore();
@@ -223,6 +223,31 @@ const Canvas2D: React.FC = () => {
       ctx.fillStyle = pileGradient;
       ctx.arc(pile.x, pile.y, pile.radius, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    for (const dump of committedDumps) {
+      const cueGradient = ctx.createRadialGradient(dump.x, dump.y, Math.max(2, dump.radius * 0.15), dump.x, dump.y, dump.radius);
+      cueGradient.addColorStop(0, 'rgba(16, 185, 129, 0.45)');
+      cueGradient.addColorStop(1, 'rgba(16, 185, 129, 0.10)');
+      ctx.beginPath();
+      ctx.fillStyle = cueGradient;
+      ctx.arc(dump.x, dump.y, dump.radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(52, 211, 153, 0.75)';
+      ctx.lineWidth = 1;
+      ctx.arc(dump.x, dump.y, Math.max(2, dump.radius - 0.8), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    for (const reserved of reservedDumpSlots) {
+      ctx.beginPath();
+      ctx.strokeStyle = 'rgba(245, 158, 11, 0.75)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.arc(reserved.x, reserved.y, reserved.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     for (const cell of blockedCells) {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GridCell, Zone, Truck, SimMetrics, Point, TruckState, Pile, FleetConfig, ScenarioConfig, DecisionState } from './types';
+import { GridCell, Zone, Truck, SimMetrics, Point, TruckState, Pile, FleetConfig, ScenarioConfig, DecisionState, PlaybackMode, DumpCue } from './types';
 import { DEFAULT_CONFIG, DEFAULT_FLEET, DEFAULT_SCENARIO, ZONE_COLORS, ZONE_BORDER_COLORS, TRUCK_COLORS, ENTRY_POINT, CAT_TRUCK_MODELS, CAT_MODEL_GROUPS } from './config';
 import { playDumpSound } from './sounds';
 // Removed particles
@@ -8,6 +8,7 @@ interface SimulationState {
   // State
   running: boolean;
   speed: number;
+  playbackMode: PlaybackMode;
   viewMode: '2d' | '3d';
   showHeatmap: boolean;
   tick: number;
@@ -38,6 +39,8 @@ interface SimulationState {
   trucks: Truck[];
   blockedCells: Point[];
   piles: Pile[];
+  committedDumps: DumpCue[];
+  reservedDumpSlots: DumpCue[];
   fleetConfig: FleetConfig;
   scenario: ScenarioConfig;
   metrics: SimMetrics;
@@ -93,6 +96,13 @@ const DEFAULT_DECISION_STATE: DecisionState = {
   lastStrategyEvalTs: null,
   lastSuccessfulAssignmentTs: null,
   slotSystemHealth: {},
+  slotLedgerSummary: {},
+  queueForecastSummary: {},
+  waveProgress: {},
+  queueAgeStats: {},
+  spacingControl: {},
+  s3aRetryBudget: {},
+  activeFarEndRows: 0,
   activeRowId: 0,
   farEndGateActive: false,
   s3aInvariantStatus: {
@@ -100,6 +110,11 @@ const DEFAULT_DECISION_STATE: DecisionState = {
     parity_gate: false,
     anchor_gap_gate: false,
   },
+  uiStepIntervalMs: 200,
+  playbackMode: 'demo',
+  backfillUnlockState: {},
+  collisionHorizonSummary: {},
+  committedDumpCount: 0,
 };
 
 const API_BASE = 'http://localhost:8000/api';
@@ -108,6 +123,11 @@ const INTEGRATED_BACKEND_MODE = (import.meta.env.VITE_ADPS_MODE ?? 'integrated')
 const DEMO_LOOP_MODE = !INTEGRATED_BACKEND_MODE;
 const DEMO_MIN_SPACING = 26;
 const DEADLOCK_WAIT_STEPS = 20;
+const DEFAULT_PLAYBACK_MODE: PlaybackMode = ((import.meta.env.VITE_PLAYBACK_MODE ?? 'demo') === 'normal' ? 'normal' : 'demo');
+const BACKEND_STEP_INTERVAL_MS_BY_MODE: Record<PlaybackMode, number> = {
+  demo: 120,
+  normal: 200,
+};
 
 function getTruckStagingOffset(index: number, total: number) {
   const clampedTotal = Math.max(total, 1);
@@ -192,7 +212,6 @@ let startInFlight = false;
 let lastHealthCheckAtMs = 0;
 let healthProbeTimestamps: number[] = [];
 const BACKEND_STEP_FAILURE_THRESHOLD = 3;
-const BACKEND_STEP_INTERVAL_MS = 200;
 const HEALTH_CHECK_COOLDOWN_MS = 1500;
 
 type BackendStepResult =
@@ -327,6 +346,13 @@ async function runBackendStepTick(): Promise<BackendStepResult> {
         lastStrategyEvalTs: typeof rawDecision?.last_strategy_eval_ts === "number" ? rawDecision.last_strategy_eval_ts : null,
         lastSuccessfulAssignmentTs: typeof rawDecision?.last_successful_assignment_ts === "number" ? rawDecision.last_successful_assignment_ts : null,
         slotSystemHealth: (rawDecision?.slot_system_health ?? {}) as Record<string, unknown>,
+        slotLedgerSummary: (rawDecision?.slot_ledger_summary ?? {}) as Record<string, unknown>,
+        queueForecastSummary: (rawDecision?.queue_forecast_summary ?? {}) as Record<string, unknown>,
+        waveProgress: (rawDecision?.wave_progress ?? {}) as Record<string, unknown>,
+        queueAgeStats: (rawDecision?.queue_age_stats ?? {}) as Record<string, unknown>,
+        spacingControl: (rawDecision?.spacing_control ?? {}) as Record<string, unknown>,
+        s3aRetryBudget: (rawDecision?.s3a_retry_budget ?? {}) as Record<string, unknown>,
+        activeFarEndRows: Number(rawDecision?.active_far_end_rows ?? 0),
         activeRowId: Number(rawDecision?.active_row_id ?? 0),
         farEndGateActive: Boolean(rawDecision?.far_end_gate_active ?? false),
         s3aInvariantStatus: {
@@ -334,7 +360,40 @@ async function runBackendStepTick(): Promise<BackendStepResult> {
           parity_gate: Boolean(rawDecision?.s3a_invariant_status?.parity_gate ?? false),
           anchor_gap_gate: Boolean(rawDecision?.s3a_invariant_status?.anchor_gap_gate ?? false),
         },
+        uiStepIntervalMs: Math.max(
+          24,
+          Math.round(
+            (BACKEND_STEP_INTERVAL_MS_BY_MODE[state.playbackMode] ?? BACKEND_STEP_INTERVAL_MS_BY_MODE.normal) /
+              Math.max(0.5, Math.min(5, Number(state.speed || 1))),
+          ),
+        ),
+        playbackMode: state.playbackMode,
+        backfillUnlockState: (rawDecision?.backfill_unlock_state ?? {}) as Record<string, unknown>,
+        collisionHorizonSummary: (rawDecision?.collision_horizon_summary ?? {}) as Record<string, unknown>,
+        committedDumpCount: Number(rawDecision?.committed_dump_count ?? 0),
       };
+      const committedDumpsRaw = Array.isArray(data?.state?.committed_dumps) ? data.state.committed_dumps : [];
+      const reservedSlotsRaw = Array.isArray(data?.state?.reserved_dump_slots) ? data.state.reserved_dump_slots : [];
+      const committedDumps: DumpCue[] = committedDumpsRaw
+        .filter((d: any) => Number.isFinite(d?.x) && Number.isFinite(d?.y) && Number.isFinite(d?.radius))
+        .map((d: any) => ({
+          x: Number(d.x),
+          y: Number(d.y),
+          radius: Number(d.radius),
+          state: 'completed',
+          truckId: d?.truck_id ? String(d.truck_id) : undefined,
+          timestampSec: Number.isFinite(d?.timestamp_sec) ? Number(d.timestamp_sec) : undefined,
+        }));
+      const reservedDumpSlots: DumpCue[] = reservedSlotsRaw
+        .filter((d: any) => Number.isFinite(d?.x) && Number.isFinite(d?.y) && Number.isFinite(d?.radius))
+        .map((d: any) => ({
+          x: Number(d.x),
+          y: Number(d.y),
+          radius: Number(d.radius),
+          state: 'reserved',
+          truckId: d?.truck_id ? String(d.truck_id) : undefined,
+          timestampSec: Number.isFinite(d?.timestamp_sec) ? Number(d.timestamp_sec) : undefined,
+        }));
 
       const newTrucks = state.trucks.map((truck) => {
         const backendTruck = backendTrucks[truck.id.toString()];
@@ -366,6 +425,7 @@ async function runBackendStepTick(): Promise<BackendStepResult> {
           speedLimiter: String(runtime.speed_limiter ?? "none"),
           effectiveSpeed: Number(runtime.effective_speed ?? 1.0),
           expectedSpeed: Number(runtime.expected_speed ?? 1.0),
+          motionProfile: String(runtime.motion_profile ?? "balanced_fast"),
           blockedBy: String(runtime.blocked_by ?? "none"),
           ticksSinceProgress: Number(runtime.ticks_since_progress ?? 0),
         };
@@ -402,6 +462,8 @@ async function runBackendStepTick(): Promise<BackendStepResult> {
         tick: backendTick,
         assignmentDiagnostics,
         decisionState,
+        committedDumps,
+        reservedDumpSlots,
       };
     });
 
@@ -511,9 +573,20 @@ function startBackendLoop() {
     if (token !== backendLoopToken || !useSimulationStore.getState().running) return;
     await executeBackendStep({ fromLoop: true, token });
     if (token !== backendLoopToken || !useSimulationStore.getState().running) return;
+    const runtimeState = useSimulationStore.getState();
+    const playbackMode = runtimeState.playbackMode;
+    const speed = Math.max(0.5, Math.min(5, Number(runtimeState.speed || 1)));
+    const baseIntervalMs = BACKEND_STEP_INTERVAL_MS_BY_MODE[playbackMode] ?? BACKEND_STEP_INTERVAL_MS_BY_MODE.normal;
+    const intervalMs = Math.max(24, Math.round(baseIntervalMs / speed));
+    useSimulationStore.setState((state) => ({
+      decisionState: {
+        ...state.decisionState,
+        uiStepIntervalMs: intervalMs,
+      },
+    }));
     backendStepIntervalId = globalThis.setTimeout(() => {
       void runOnce();
-    }, BACKEND_STEP_INTERVAL_MS);
+    }, intervalMs);
   };
   void runOnce();
 }
@@ -1021,6 +1094,7 @@ function avoidCollisions(truck: Truck, trucks: Truck[]): { stop: boolean } {
 export const useSimulationStore = create<SimulationState>((set, get) => ({
   running: false,
   speed: 1,
+  playbackMode: DEFAULT_PLAYBACK_MODE,
   viewMode: '2d',
   showHeatmap: false,
   tick: 0,
@@ -1043,6 +1117,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   trucks: [],
   blockedCells: [],
   piles: [],
+  committedDumps: [],
+  reservedDumpSlots: [],
   // Removed particles
   currentZoneIndex: 0,
   
@@ -1202,6 +1278,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       trucks,
       blockedCells: [],
       piles: [],
+      committedDumps: [],
+      reservedDumpSlots: [],
       currentZoneIndex: 0,
       tick: 0,
       running: false,
@@ -1354,6 +1432,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     blockedCells: [],
     zones: [],
     piles: [],
+    committedDumps: [],
+    reservedDumpSlots: [],
     grid: createGrid() // empty grid to start
   }),
   

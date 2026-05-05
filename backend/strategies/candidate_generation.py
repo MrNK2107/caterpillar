@@ -4,7 +4,7 @@ import logging
 import math
 import os
 from dataclasses import dataclass
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from shapely.geometry import Point, Polygon
 
@@ -39,6 +39,7 @@ class CandidateSpot:
     wave_id: int = 0
     candidate_source: str = ""
     fallback_reason: str = ""
+    assignment_metadata: Dict[str, object] | None = None
 
 
 def _cell_center(surface_map: SurfaceMap, row: int, col: int) -> Tuple[float, float]:

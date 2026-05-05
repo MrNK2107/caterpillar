@@ -18,6 +18,13 @@ from strategies.scoring import ScoreWeights, score_candidate
 
 logger = logging.getLogger(__name__)
 
+DEMO_MOTION_PROFILE = "balanced_fast"
+MOTION_BASE_STEP_MIN = 16.0
+MOTION_BASE_STEP_MAX = 42.0
+MOTION_BASE_STEP_SCALE = 2.1
+MOTION_MIN_MULTIPLIER = 0.62
+MOTION_MAX_MULTIPLIER = 1.35
+
 
 @dataclass(slots=True)
 class LocalTruckView:
@@ -81,6 +88,7 @@ class TruckAgent:
         self.last_expected_speed: float = 1.0
         self.ticks_since_progress: int = 0
         self._prev_position_for_progress: Tuple[float, float] = self.own_position
+        self.motion_profile: str = DEMO_MOTION_PROFILE
 
         if getattr(self.truck, "current_position", None) is not None:
             self.own_position = (float(self.truck.current_position.x), float(self.truck.current_position.y))
@@ -137,8 +145,10 @@ class TruckAgent:
             self._set_position(target)
             return True
 
-        base_step = max(1.0, min(6.0, self.truck.model.length_m * 0.18))
-        step = base_step * max(0.55, min(self.speed_multiplier, 1.0))
+        # Keep travel progress meaningful on large yards so far-end S3A anchors
+        # are reachable within practical simulation horizons.
+        base_step = max(MOTION_BASE_STEP_MIN, min(MOTION_BASE_STEP_MAX, self.truck.model.length_m * MOTION_BASE_STEP_SCALE))
+        step = base_step * max(MOTION_MIN_MULTIPLIER, min(self.speed_multiplier, MOTION_MAX_MULTIPLIER))
         ratio = min(1.0, step / max(distance, 1e-9))
         next_position = (
             self.own_position[0] + dx * ratio,
@@ -488,20 +498,23 @@ class TruckAgent:
         speed_multiplier = 1.0
         limiter_reasons: List[str] = []
         if visibility < 0.55:
-            speed_multiplier *= 0.7
+            speed_multiplier *= 0.78
             limiter_reasons.append("low_visibility")
         if visibility < 0.4:
-            speed_multiplier *= 0.75
+            speed_multiplier *= 0.82
             limiter_reasons.append("very_low_visibility")
 
         too_close = any(other.state in {"DUMPING", "EN_ROUTE", "WAITING"} for other in self.local_trucks.values())
         if too_close:
-            speed_multiplier *= 0.75
+            speed_multiplier *= 0.84
             limiter_reasons.append("traffic_conflict")
 
-        self.speed_multiplier = max(0.55, min(speed_multiplier, 1.0))
+        # Allow mild acceleration above baseline in clear conditions.
+        if visibility > 0.75 and not too_close:
+            speed_multiplier *= 1.12
+        self.speed_multiplier = max(MOTION_MIN_MULTIPLIER, min(speed_multiplier, MOTION_MAX_MULTIPLIER))
         self.last_effective_speed = self.speed_multiplier
-        self.last_expected_speed = 1.0
+        self.last_expected_speed = MOTION_MAX_MULTIPLIER
         self.last_speed_limiter = ",".join(limiter_reasons) if limiter_reasons else "none"
 
         angle_of_repose_deg = self.material_profile.get("angle_of_repose_deg", 36.0)
@@ -529,6 +542,7 @@ class TruckAgent:
             "speed_limiter": self.last_speed_limiter,
             "effective_speed": float(self.last_effective_speed),
             "expected_speed": float(self.last_expected_speed),
+            "motion_profile": self.motion_profile,
             "blocked_by": self.block_substate or "none",
             "ticks_since_progress": int(self.ticks_since_progress),
         }
