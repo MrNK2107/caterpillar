@@ -24,6 +24,7 @@ export const StrategyPanel: React.FC = () => {
   const plannerPhaseReason = decisionState?.plannerPhaseReason || "pending";
   const spacingPatternStatus = decisionState?.spacingPatternStatus || "inactive";
   const waveId = decisionState?.waveId ?? 0;
+  const invariants = decisionState?.s3aInvariantStatus;
   const latestTrace = getLatestAssignmentTrace(assignmentDiagnostics);
   
   return (
@@ -112,6 +113,20 @@ export const StrategyPanel: React.FC = () => {
             {latestTrace?.slot_parity ?? "N/A"}
           </div>
           <div>
+            <span className="text-slate-500">Slot: </span>
+            {latestTrace?.slot_id ?? "N/A"}
+            <span className="text-slate-500"> | Row: </span>
+            {latestTrace?.row_id ?? "N/A"}
+            <span className="text-slate-500"> | State: </span>
+            {latestTrace?.slot_state ?? "N/A"}
+          </div>
+          <div>
+            <span className="text-slate-500">Reserve class: </span>
+            {latestTrace?.reserve_class ?? "N/A"}
+            <span className="text-slate-500"> | Fallback: </span>
+            {latestTrace?.fallback_reason ?? "none"}
+          </div>
+          <div>
             <span className="text-slate-500">Why selected: </span>
             {latestTrace?.strategy_reason ?? strategyReason}
           </div>
@@ -128,6 +143,15 @@ export const StrategyPanel: React.FC = () => {
             {decisionState?.lastSuccessfulAssignmentTs ? new Date(decisionState.lastSuccessfulAssignmentTs * 1000).toLocaleTimeString() : "N/A"}
           </div>
         </div>
+
+        {plannerMode === "S3A" && (
+          <div className="rounded border border-slate-800 bg-slate-950/70 p-2 text-xs text-slate-300">
+            <div className="font-semibold text-slate-200">S3A Invariant Status</div>
+            <div>Far-end gate: {invariants?.far_end_gate ? "PASS" : "FAIL"}</div>
+            <div>Parity gate: {invariants?.parity_gate ? "PASS" : "FAIL"}</div>
+            <div>Anchor gap gate: {invariants?.anchor_gap_gate ? "PASS" : "FAIL"}</div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

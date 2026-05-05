@@ -186,4 +186,12 @@ export interface DecisionState {
   pendingStrategy: string | null;
   lastStrategyEvalTs: number | null;
   lastSuccessfulAssignmentTs: number | null;
+  slotSystemHealth?: Record<string, unknown>;
+  activeRowId?: number;
+  farEndGateActive?: boolean;
+  s3aInvariantStatus?: {
+    far_end_gate: boolean;
+    parity_gate: boolean;
+    anchor_gap_gate: boolean;
+  };
 }

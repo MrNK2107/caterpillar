@@ -16,6 +16,7 @@ from simulation.metrics import SimulationMetricsTracker
 from perception.sensor_model import SurfaceSensorModel
 from simulation.conflict_arbiter import ConflictArbiter, ConflictDecision
 from strategies.candidate_generation import CandidateSpot
+from strategies_v2.slot_registry import get_global_registry
 import math
 from threading import Lock
 
@@ -338,6 +339,10 @@ class DumpManager:
         }
 
     def init_yard(self, polygon_coords: List[PydanticPoint], entry_point: PydanticPoint) -> List[dict]:
+        try:
+            get_global_registry().reset()
+        except Exception:
+            logger.debug("slot_registry reset failed on init_yard", exc_info=True)
         main_poly = Polygon([(p.x, p.y) for p in polygon_coords])
         if main_poly.is_empty:
             return []
@@ -1120,6 +1125,15 @@ class DumpManager:
                                 "anchor_band": "far_end",
                                 "wave_id": self._wave_id,
                                 "slot_parity": "N/A",
+                                "slot_id": "N/A",
+                                "row_id": "N/A",
+                                "slot_state": "queued",
+                                "reserve_class": "N/A",
+                                "fallback_reason": "none",
+                                "failed_constraints": [],
+                                "fallback_stage": "far_end_strict",
+                                "required_pitch_m": 0.0,
+                                "actual_neighbor_pitch_m": 0.0,
                                 "queue_state": "queued_for_wave",
                                 "reservation_blockers_count": 0,
                                 "rejection_causes": ["queued_for_wave"],
@@ -1144,6 +1158,15 @@ class DumpManager:
                                 "anchor_band": "far_end" if self._planner_phase == "bootstrap_far_end" else ("mid" if self._planner_phase == "stagger_fill" else "near"),
                                 "wave_id": self._wave_id,
                                 "slot_parity": "N/A",
+                                "slot_id": "N/A",
+                                "row_id": "N/A",
+                                "slot_state": "queued",
+                                "reserve_class": "N/A",
+                                "fallback_reason": "none",
+                                "failed_constraints": [],
+                                "fallback_stage": "far_end_strict",
+                                "required_pitch_m": 0.0,
+                                "actual_neighbor_pitch_m": 0.0,
                                 "queue_state": "awaiting_slot_release",
                                 "reservation_blockers_count": 0,
                                 "rejection_causes": ["queued_for_wave"],
@@ -1220,6 +1243,10 @@ class DumpManager:
                                     "slot_state": self._extract_trace_token(getattr(candidate, "explainability", ""), "slot_state", "N/A"),
                                     "reserve_class": self._extract_trace_token(getattr(candidate, "explainability", ""), "reserve_class", "N/A"),
                                     "fallback_reason": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_reason", "none"),
+                                    "failed_constraints": ["swept_collision"],
+                                    "fallback_stage": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_stage", "far_end_strict"),
+                                    "required_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "required_pitch_m", "0") or 0.0),
+                                    "actual_neighbor_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "actual_neighbor_pitch_m", "0") or 0.0),
                                     "rejection_causes": ["swept_collision"],
                                 },
                             }
@@ -1267,6 +1294,10 @@ class DumpManager:
                                     "slot_state": self._extract_trace_token(getattr(candidate, "explainability", ""), "slot_state", "N/A"),
                                     "reserve_class": self._extract_trace_token(getattr(candidate, "explainability", ""), "reserve_class", "N/A"),
                                     "fallback_reason": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_reason", "none"),
+                                    "failed_constraints": ["conflict_hold"],
+                                    "fallback_stage": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_stage", "far_end_strict"),
+                                    "required_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "required_pitch_m", "0") or 0.0),
+                                    "actual_neighbor_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "actual_neighbor_pitch_m", "0") or 0.0),
                                     "queue_state": "awaiting_conflict_clear",
                                     "reservation_blockers_count": len(blockers),
                                     "rejection_causes": ["conflict_hold"],
@@ -1319,6 +1350,10 @@ class DumpManager:
                                 "slot_state": self._extract_trace_token(getattr(candidate, "explainability", ""), "slot_state", "N/A"),
                                 "reserve_class": self._extract_trace_token(getattr(candidate, "explainability", ""), "reserve_class", "N/A"),
                                 "fallback_reason": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_reason", "none"),
+                                "failed_constraints": [],
+                                "fallback_stage": self._extract_trace_token(getattr(candidate, "explainability", ""), "fallback_stage", "far_end_strict"),
+                                "required_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "required_pitch_m", "0") or 0.0),
+                                "actual_neighbor_pitch_m": float(self._extract_trace_token(getattr(candidate, "explainability", ""), "actual_neighbor_pitch_m", "0") or 0.0),
                                 "queue_state": "assigned",
                                 "reservation_blockers_count": 0,
                                 "rejection_causes": [],
@@ -1367,6 +1402,10 @@ class DumpManager:
                                     "slot_state": "invalid",
                                     "reserve_class": "N/A",
                                     "fallback_reason": "safe_fallback",
+                                    "failed_constraints": ["no_valid_slot"],
+                                    "fallback_stage": "safe_fallback",
+                                    "required_pitch_m": 0.0,
+                                    "actual_neighbor_pitch_m": 0.0,
                                     "queue_state": "assigned",
                                     "reservation_blockers_count": 0,
                                     "rejection_causes": [],
@@ -1390,6 +1429,15 @@ class DumpManager:
                                 "anchor_band": "unknown",
                                 "wave_id": int(self._wave_id),
                                 "slot_parity": "N/A",
+                                "slot_id": "N/A",
+                                "row_id": "N/A",
+                                "slot_state": "invalid",
+                                "reserve_class": "N/A",
+                                "fallback_reason": "none",
+                                "failed_constraints": ["no_valid_slot"],
+                                "fallback_stage": "far_end_strict",
+                                "required_pitch_m": 0.0,
+                                "actual_neighbor_pitch_m": 0.0,
                                 "queue_state": "awaiting_slot_release",
                                 "reservation_blockers_count": 0,
                                 "rejection_causes": ["no_valid_candidate"],
@@ -1619,6 +1667,10 @@ class DumpManager:
                     self.zones[zone_name].dump_count += 1
 
                 self.metrics.record_dump(sx, sy, truck_pile_radius)
+                try:
+                    get_global_registry().mark_dumped(truck_id)
+                except Exception:
+                    logger.debug("slot_registry mark_dumped failed for %s", truck_id, exc_info=True)
 
                 agent = self.truck_agents.get(truck_id)
                 if agent:
@@ -1740,6 +1792,22 @@ class DumpManager:
             if scenario_id == "custom" and scenario_name == "custom":
                 scenario_id = f"AUTO-{self._planner_mode}"
                 scenario_name = f"auto mode {self._planner_mode.lower()}"
+            try:
+                slot_health = get_global_registry().health(self._planner_phase)
+            except Exception:
+                slot_health = {
+                    "built": False,
+                    "phase": self._planner_phase,
+                    "candidate_anchor_count": 0,
+                    "candidate_backfill_count": 0,
+                    "active_row_pointer": 0,
+                    "stats": {"total": 0, "free": 0, "reserved": 0, "dumped": 0, "rows": 0},
+                }
+            invariant_status = {
+                "far_end_gate": bool(self._planner_phase == "bootstrap_far_end" and slot_health.get("candidate_anchor_count", 0) > 0),
+                "parity_gate": bool(self._planner_mode == "S3A"),
+                "anchor_gap_gate": bool(slot_health.get("built", False)),
+            }
 
             return {
                 "trucks": trucks_status,
@@ -1790,6 +1858,10 @@ class DumpManager:
                     "pending_strategy": self._pending_strategy if self._strategy_transition_pending else None,
                     "last_strategy_eval_ts": self._last_strategy_eval_wall_time,
                     "last_successful_assignment_ts": self._last_successful_assignment_wall_time,
+                    "slot_system_health": slot_health,
+                    "active_row_id": int(slot_health.get("active_row_pointer", 0)),
+                    "far_end_gate_active": self._planner_phase == "bootstrap_far_end",
+                    "s3a_invariant_status": invariant_status,
                 },
                 "scenario": {
                     "id": scenario_id,
@@ -1821,6 +1893,10 @@ class DumpManager:
                 if not (rs.get('truck_id') == truck_id and rs.get('status') == 'reserved')
             ]
             DEFAULT_RESERVATION_SYSTEM.remove_reservations_for_truck(truck_id)
+            try:
+                get_global_registry().release_slot(truck_id)
+            except Exception:
+                logger.debug("slot_registry release failed for %s", truck_id, exc_info=True)
 
             truck = self.trucks[truck_id]
             truck.assigned_spot = None

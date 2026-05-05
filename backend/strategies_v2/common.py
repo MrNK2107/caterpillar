@@ -180,6 +180,7 @@ class SystemStateView:
     strict_boundary: bool = False
     objective_weights: Dict[str, float] = field(default_factory=dict)
     prefilter_gradient: float = 0.6
+    fleet_composition: Dict[str, int] = field(default_factory=dict)
 
 
 def _lookup(source: object, *names: str, default: Any = None) -> Any:
@@ -282,6 +283,11 @@ def normalize_system_state(system_state: object) -> SystemStateView:
     grid_spacing_m = float(_lookup(system_state, "grid_spacing_m", "spacing_m", default=DEFAULT_GRID_SPACING_M))
     strict_boundary = bool(_lookup(system_state, "strict_boundary", default=False))
     prefilter_gradient = float(_lookup(system_state, "prefilter_gradient", default=0.6))
+    fleet_composition_raw = _lookup(system_state, "fleet_composition", default={}) or {}
+    fleet_composition = {
+        str(k): int(v) for k, v in fleet_composition_raw.items()
+        if isinstance(v, (int, float)) and int(v) > 0
+    }
     objective_weights_raw = _lookup(system_state, "objective_weights", default={}) or {}
     objective_weights = {
         "coverage": float(_lookup(objective_weights_raw, "coverage", default=1.5)),
@@ -308,6 +314,7 @@ def normalize_system_state(system_state: object) -> SystemStateView:
         strict_boundary=strict_boundary,
         objective_weights=objective_weights,
         prefilter_gradient=prefilter_gradient,
+        fleet_composition=fleet_composition,
     )
 
 

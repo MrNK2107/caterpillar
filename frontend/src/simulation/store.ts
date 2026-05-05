@@ -92,6 +92,14 @@ const DEFAULT_DECISION_STATE: DecisionState = {
   pendingStrategy: null,
   lastStrategyEvalTs: null,
   lastSuccessfulAssignmentTs: null,
+  slotSystemHealth: {},
+  activeRowId: 0,
+  farEndGateActive: false,
+  s3aInvariantStatus: {
+    far_end_gate: false,
+    parity_gate: false,
+    anchor_gap_gate: false,
+  },
 };
 
 const API_BASE = 'http://localhost:8000/api';
@@ -318,6 +326,14 @@ async function runBackendStepTick(): Promise<BackendStepResult> {
         pendingStrategy: rawDecision?.pending_strategy ? String(rawDecision.pending_strategy) : null,
         lastStrategyEvalTs: typeof rawDecision?.last_strategy_eval_ts === "number" ? rawDecision.last_strategy_eval_ts : null,
         lastSuccessfulAssignmentTs: typeof rawDecision?.last_successful_assignment_ts === "number" ? rawDecision.last_successful_assignment_ts : null,
+        slotSystemHealth: (rawDecision?.slot_system_health ?? {}) as Record<string, unknown>,
+        activeRowId: Number(rawDecision?.active_row_id ?? 0),
+        farEndGateActive: Boolean(rawDecision?.far_end_gate_active ?? false),
+        s3aInvariantStatus: {
+          far_end_gate: Boolean(rawDecision?.s3a_invariant_status?.far_end_gate ?? false),
+          parity_gate: Boolean(rawDecision?.s3a_invariant_status?.parity_gate ?? false),
+          anchor_gap_gate: Boolean(rawDecision?.s3a_invariant_status?.anchor_gap_gate ?? false),
+        },
       };
 
       const newTrucks = state.trucks.map((truck) => {
