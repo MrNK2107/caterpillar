@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
-import Dashboard from "@/components/Dashboard";
+import IntegratedDashboard from "@/components/IntegratedDashboard";
 
 export const Route = createFileRoute("/")({
-  component: Dashboard,
+  component: IntegratedDashboard,
   head: () => ({
     meta: [
       { title: "Autonomous Truck Dumping Optimisation · Caterpillar Demo" },

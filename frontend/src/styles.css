@@ -63,7 +63,7 @@
 
 :root {
   --radius: 0.5rem;
-  /* Industrial dark theme — Caterpillar inspired */
+  /* Industrial dark theme - Caterpillar inspired */
   --cat-yellow: 48 100% 50%;
   --background: oklch(0.16 0.012 240);
   --foreground: oklch(0.96 0.003 240);
@@ -142,5 +142,36 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+
+  /* Global themed scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(0.48 0.03 250 / 0.75) oklch(0.18 0.01 250 / 0.6);
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: linear-gradient(180deg, rgba(15, 23, 42, 0.85), rgba(10, 15, 26, 0.85));
+    border-radius: 10px;
+    border: 1px solid rgba(51, 65, 85, 0.35);
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(112, 130, 168, 0.8), rgba(78, 95, 128, 0.95));
+    border-radius: 10px;
+    border: 2px solid rgba(10, 15, 26, 0.9);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(180deg, rgba(245, 193, 45, 0.92), rgba(224, 160, 22, 0.95));
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: rgba(10, 15, 26, 0.9);
   }
 }

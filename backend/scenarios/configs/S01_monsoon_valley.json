@@ -41,6 +41,20 @@
       "wind_direction_deg": 225,
       "visibility_m": 350.0
     },
+    "trigger_profile": {
+      "mode": "dynamic",
+      "description": "Monsoon escalation trigger when rain and visibility cross safety thresholds."
+    },
+    "activation_preconditions": {
+      "fleet_mix": "homogeneous",
+      "rain_intensity": {"min": 0.0},
+      "visibility_m": {"min": 100.0}
+    },
+    "expected_dsde_route": {
+      "expected_strategy_precedence": ["S1", "S3", "S6", "S7"],
+      "fallback_strategy": "S7",
+      "max_divergence_steps": 8
+    },
     "timeline": [
       {
         "time_sec": 3600,

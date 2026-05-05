@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .common import (
     AssignmentResult,
+    build_candidate_explainability,
     candidate_to_path,
     directional_centroid_candidates,
     log_assignment,
@@ -13,9 +14,16 @@ STRATEGY_NAME = "S1"
 
 def get_assignment(truck_state: object, system_state: object) -> AssignmentResult:
     truck_view, system_view = normalize_assignment_inputs(truck_state, system_state)
-    candidates = directional_centroid_candidates(system_view, truck_view.position, getattr(truck_view.truck, "model", getattr(truck_view.truck, "truck_model", None)), strict_boundary=False)
+    candidates = directional_centroid_candidates(
+        system_view,
+        truck_view.position,
+        getattr(truck_view.truck, "model", getattr(truck_view.truck, "truck_model", None)),
+        truck_id=truck_view.truck_id,
+        strict_boundary=False,
+    )
 
     for candidate in candidates:
+        candidate.explainability = build_candidate_explainability(candidate, system_view, truck_view.truck_id)
         path_points = candidate_to_path(candidate, truck_view, system_view, allow_dynamic_planning=True)
         log_assignment(
             STRATEGY_NAME,

@@ -1,20 +1,30 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { useSimulationStore } from '@/simulation/store';
 
 // DSDE Strategy Panel - shows real-time strategy from DSDE
 export const StrategyPanel: React.FC = () => {
-  const { metrics } = useSimulationStore();
-  
-  const activeStrategy = metrics?.strategy?.active || 'S1';
-  const strategyReason = metrics?.strategy?.reason || 'initializing';
-  const transitionPending = metrics?.strategy?.transition_pending || false;
-  const pendingStrategy = metrics?.strategy?.pending || null;
-  
-  // Get strategy display info
-  const strategyInfo = getStrategyInfo(activeStrategy);
+  const { decisionState, assignmentDiagnostics } = useSimulationStore();
+
+  const activeStrategy = decisionState?.activeStrategy || 'UNKNOWN';
+  const strategyReason = decisionState?.reason || 'Strategy not evaluated yet';
+  const strategyLabel = decisionState?.strategyLabel || 'Pending evaluation';
+  const transitionPending = Boolean(decisionState?.transitionPending);
+  const pendingStrategy = decisionState?.pendingStrategy || null;
+  const scenarioId = decisionState?.scenarioId || 'custom';
+  const scenarioName = decisionState?.scenarioName || 'custom';
+  const s6Active = Boolean(decisionState?.s6Active);
+  const s7Active = Boolean(decisionState?.s7Active);
+  const plannerMode = decisionState?.plannerMode || "FALLBACK";
+  const plannerModeLabel = decisionState?.plannerModeLabel || plannerMode;
+  const plannerModeReason = decisionState?.plannerModeReason || "pending";
+  const plannerModeSuppressed = Boolean(decisionState?.plannerModeSuppressed);
+  const plannerPhase = decisionState?.plannerPhase || "backfill";
+  const plannerPhaseReason = decisionState?.plannerPhaseReason || "pending";
+  const spacingPatternStatus = decisionState?.spacingPatternStatus || "inactive";
+  const waveId = decisionState?.waveId ?? 0;
+  const latestTrace = getLatestAssignmentTrace(assignmentDiagnostics);
   
   return (
     <Card className="bg-slate-900 border-slate-700">
@@ -31,45 +41,92 @@ export const StrategyPanel: React.FC = () => {
       <CardContent className="space-y-3">
         {/* Strategy Badge */}
         <div className="flex items-center gap-2">
-          <Badge 
-            style={{ backgroundColor: strategyInfo.color + '33', borderColor: strategyInfo.color }}
+          <Badge
+            style={{ backgroundColor: getStrategyInfo(activeStrategy).color + '33', borderColor: getStrategyInfo(activeStrategy).color }}
             className="text-lg font-bold px-3 py-1"
           >
             {activeStrategy}
           </Badge>
-          <span className="text-sm text-slate-400">{strategyInfo.name}</span>
+          <span className="text-sm text-slate-400">{strategyLabel}</span>
         </div>
-        
-        {/* Reason */}
+
+        <div className="text-xs text-slate-400">
+          <span className="font-semibold">Scenario: </span>
+          {scenarioId} - {scenarioName}
+        </div>
+        <div className="text-xs text-slate-400">
+          <span className="font-semibold">Planner Mode: </span>
+          {plannerMode} - {plannerModeLabel}
+          {plannerModeSuppressed ? " (suppressed by safety override)" : ""}
+        </div>
+
         <div className="text-xs text-slate-400">
           <span className="font-semibold">Reason: </span>
           {strategyReason}
         </div>
-        
-        {/* Transition countdown (if pending) */}
+        <div className="text-xs text-slate-500">
+          <span className="font-semibold">Mode reason: </span>
+          {plannerModeReason}
+        </div>
+        <div className="text-xs text-slate-400">
+          <span className="font-semibold">Planner Phase: </span>
+          {plannerPhase}
+        </div>
+        <div className="text-xs text-slate-500">
+          <span className="font-semibold">Phase reason: </span>
+          {plannerPhaseReason}
+        </div>
+        <div className="text-xs text-slate-400">
+          <span className="font-semibold">Spacing Pattern: </span>
+          {spacingPatternStatus}
+          <span className="text-slate-500"> (wave {waveId})</span>
+        </div>
+
         {transitionPending && pendingStrategy && (
-          <div className="space-y-1">
-            <div className="text-xs text-amber-400">
-              Switching to {pendingStrategy} in{' '}
-              <span className="font-mono">60s</span>
-            </div>
-            <Progress value={75} className="h-1 bg-slate-800" />
+          <div className="text-xs text-amber-400">
+            Transition pending to {pendingStrategy}
           </div>
         )}
-        
-        {/* Modifiers as tags */}
+
         <div className="flex flex-wrap gap-1 pt-1">
-          {getModifiers(activeStrategy).map(mod => (
-            <Badge key={mod} variant="secondary" className="text-xs">
-              {mod}
-            </Badge>
-          ))}
-          <Badge variant={activeStrategy.includes('S6') ? "destructive" : "default"} className="text-xs">
-            {activeStrategy.includes('S6') ? 'S6 ACTIVE' : 'S6 OFF'}
+          <Badge variant={s6Active ? "destructive" : "outline"} className="text-xs">
+            {s6Active ? 'S6 ON' : 'S6 OFF'}
           </Badge>
-          <Badge variant={activeStrategy.includes('S7') ? "destructive" : "outline"} className="text-xs">
-            {activeStrategy.includes('S7') ? 'S7 FORCED' : 'S7 OK'}
+          <Badge variant={s7Active ? "destructive" : "outline"} className="text-xs">
+            {s7Active ? 'S7 ON' : 'S7 OFF'}
           </Badge>
+        </div>
+
+        <div className="rounded border border-slate-800 bg-slate-950/70 p-2 text-xs text-slate-300">
+          <div className="font-semibold text-slate-200">Dump Spot Selection</div>
+          <div>
+            <span className="text-slate-500">Approach now: </span>
+            {latestTrace?.selected_planner_mode ? `${latestTrace.selected_planner_mode} (${latestTrace.candidate_source ?? "unknown"})` : (latestTrace?.candidate_source ?? `${plannerMode} pending`)}
+          </div>
+          <div>
+            <span className="text-slate-500">Anchor band: </span>
+            {latestTrace?.anchor_band ?? "N/A"}
+            <span className="text-slate-500"> | Wave: </span>
+            {latestTrace?.wave_id ?? waveId}
+            <span className="text-slate-500"> | Parity: </span>
+            {latestTrace?.slot_parity ?? "N/A"}
+          </div>
+          <div>
+            <span className="text-slate-500">Why selected: </span>
+            {latestTrace?.strategy_reason ?? strategyReason}
+          </div>
+          <div>
+            <span className="text-slate-500">Current blocker: </span>
+            {latestTrace?.selected_xy ? "none" : (latestTrace?.queue_state ?? latestTrace?.explainability ?? "awaiting assignment")}
+          </div>
+          <div>
+            <span className="text-slate-500">Last strategy eval: </span>
+            {decisionState?.lastStrategyEvalTs ? new Date(decisionState.lastStrategyEvalTs * 1000).toLocaleTimeString() : "N/A"}
+          </div>
+          <div>
+            <span className="text-slate-500">Last successful assignment: </span>
+            {decisionState?.lastSuccessfulAssignmentTs ? new Date(decisionState.lastSuccessfulAssignmentTs * 1000).toLocaleTimeString() : "N/A"}
+          </div>
         </div>
       </CardContent>
     </Card>
@@ -92,11 +149,13 @@ function getStrategyInfo(strategy: string) {
   return strategies[base] || { name: 'Unknown', color: '#64748B' };
 }
 
-function getModifiers(strategy: string): string[] {
-  if (strategy.includes('S6')) {
-    return ['S6 Active'];
+function getLatestAssignmentTrace(assignmentDiagnostics: Record<string, { assignment_trace?: Record<string, any> }>) {
+  for (const value of Object.values(assignmentDiagnostics || {})) {
+    if (value?.assignment_trace) {
+      return value.assignment_trace;
+    }
   }
-  return [];
+  return null;
 }
 
 export default StrategyPanel;

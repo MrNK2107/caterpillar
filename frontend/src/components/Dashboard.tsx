@@ -22,6 +22,30 @@ export default function Dashboard() {
   const [showTargets, setShowTargets] = useState(true);
   const [editMode, setEditMode] = useState<"none" | "map" | "entry">("none");
   const [draftPolygon, setDraftPolygon] = useState<{x: number, y: number}[]>([]);
+  const [objective, setObjective] = useState({
+    coverage: 1.5,
+    slopeSafety: 1.0,
+    spacing: 1.2,
+    laneSpread: 0.8,
+  });
+
+  const pushObjectiveWeights = async (next: typeof objective) => {
+    try {
+      await fetch("http://127.0.0.1:8000/api/v1/objective_weights", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          coverage: next.coverage,
+          slope_safety: next.slopeSafety,
+          spacing: next.spacing,
+          lane_spread: next.laneSpread,
+        }),
+      });
+    } catch (e) {
+      // Keep UI responsive even if backend is down.
+      console.error("Failed to push objective weights", e);
+    }
+  };
 
   const handleCanvasClick = (gx: number, gy: number) => {
     if (editMode === "map") {
@@ -103,6 +127,66 @@ export default function Dashboard() {
                 onChange={(e) => sim.updateConfig({ gapDistance: parseFloat(e.target.value) })}
                 className="mt-1 w-full accent-[hsl(var(--cat-yellow))]"
               />
+            </div>
+          </section>
+
+          <section className="rounded-md border border-border bg-card/60 p-4">
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Packing Objectives
+            </h2>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground">Coverage: {objective.coverage.toFixed(2)}</label>
+                <input
+                  type="range" min={0.5} max={3.0} step={0.1}
+                  value={objective.coverage}
+                  onChange={(e) => {
+                    const next = { ...objective, coverage: parseFloat(e.target.value) };
+                    setObjective(next);
+                    void pushObjectiveWeights(next);
+                  }}
+                  className="mt-1 w-full accent-[hsl(var(--cat-yellow))]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Slope Safety: {objective.slopeSafety.toFixed(2)}</label>
+                <input
+                  type="range" min={0.5} max={3.0} step={0.1}
+                  value={objective.slopeSafety}
+                  onChange={(e) => {
+                    const next = { ...objective, slopeSafety: parseFloat(e.target.value) };
+                    setObjective(next);
+                    void pushObjectiveWeights(next);
+                  }}
+                  className="mt-1 w-full accent-[hsl(var(--cat-yellow))]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Spacing: {objective.spacing.toFixed(2)}</label>
+                <input
+                  type="range" min={0.5} max={3.0} step={0.1}
+                  value={objective.spacing}
+                  onChange={(e) => {
+                    const next = { ...objective, spacing: parseFloat(e.target.value) };
+                    setObjective(next);
+                    void pushObjectiveWeights(next);
+                  }}
+                  className="mt-1 w-full accent-[hsl(var(--cat-yellow))]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Lane Spread: {objective.laneSpread.toFixed(2)}</label>
+                <input
+                  type="range" min={0.0} max={3.0} step={0.1}
+                  value={objective.laneSpread}
+                  onChange={(e) => {
+                    const next = { ...objective, laneSpread: parseFloat(e.target.value) };
+                    setObjective(next);
+                    void pushObjectiveWeights(next);
+                  }}
+                  className="mt-1 w-full accent-[hsl(var(--cat-yellow))]"
+                />
+              </div>
             </div>
           </section>
 

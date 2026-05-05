@@ -50,6 +50,12 @@ class SystemAssignmentState:
     modifiers: Tuple[str, ...] = ()
     decision_reason: str = ""
     current_strategy: str = ""
+    objective_weights: object = None
+    prefilter_gradient: float = 0.6
+    planner_mode: str = "FALLBACK"
+    planner_mode_reason: str = ""
+    planner_phase: str = "backfill"
+    wave_id: int = 0
 
 
 @dataclass(slots=True)
@@ -59,6 +65,7 @@ class AssignmentOutcome:
     reason: str
     candidate: Optional[CandidateSpot]
     path_points: List[Tuple[float, float]]
+    explainability: str = ""
 
     @property
     def assigned_spot(self) -> Optional[Point]:
@@ -109,6 +116,12 @@ def get_dump_assignment(
         modifiers=decision_modifiers,
         decision_reason=decision_reason,
         current_strategy=strategy_name,
+        objective_weights=getattr(system_state, "objective_weights", None),
+        prefilter_gradient=float(getattr(system_state, "prefilter_gradient", 0.6)),
+        planner_mode=str(getattr(system_state, "planner_mode", "FALLBACK")),
+        planner_mode_reason=str(getattr(system_state, "planner_mode_reason", "")),
+        planner_phase=str(getattr(system_state, "planner_phase", "backfill")),
+        wave_id=int(getattr(system_state, "wave_id", 0) or 0),
     )
 
     assignment = strategy_getter(truck_state, strategy_system_state)
@@ -123,10 +136,11 @@ def get_dump_assignment(
     if assignment:
         candidate, path_points = assignment
         logger.info(
-            "dump_assignment decision truck=%s strategy=%s reason=%s selected_position=(%.3f, %.3f) score=%.4f constraints=%s path_points=%d",
+            "dump_assignment decision truck=%s strategy=%s reason=%s explainability=%s selected_position=(%.3f, %.3f) score=%.4f constraints=%s path_points=%d",
             truck_state.truck_id,
             strategy_name,
             decision_reason,
+            getattr(candidate, "explainability", ""),
             candidate.x,
             candidate.y,
             float(getattr(candidate, "score", float("nan"))),
@@ -139,6 +153,7 @@ def get_dump_assignment(
             reason=decision_reason,
             candidate=candidate,
             path_points=path_points,
+            explainability=getattr(candidate, "explainability", ""),
         )
 
     logger.info(

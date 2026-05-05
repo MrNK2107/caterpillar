@@ -1,0 +1,64 @@
+{
+  "id": "S03B",
+  "name": "S03B - Narrow Corridor (Dynamic Choke Escalation)",
+  "description": "Corridor begins passable, then evolves into choke-point operations via timeline trigger; expected transition to S5 and possibly S7 under degraded health.",
+  "polygon": [
+    {"x": 40, "y": 170},
+    {"x": 40, "y": 310},
+    {"x": 680, "y": 360},
+    {"x": 680, "y": 120}
+  ],
+  "entry_point": {"x": 40, "y": 240},
+  "fleet": {
+    "small": 4,
+    "large": 3,
+    "preferred_model": "Cat 793F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 40, "y": 170},
+      {"x": 40, "y": 310},
+      {"x": 680, "y": 360},
+      {"x": 680, "y": 120}
+    ],
+    "material_type": "rock",
+    "material_moisture_pct": 4.0,
+    "slope_limits": {
+      "max_cell_slope": 0.8,
+      "max_average_slope": 0.55
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 8.0,
+      "wind_direction_deg": 45,
+      "visibility_m": 500.0
+    },
+    "trigger_profile": {
+      "mode": "dynamic",
+      "description": "Dynamic choke activation by timeline event; later fallback if lidar fault is injected."
+    },
+    "activation_preconditions": {
+      "fleet_mix": "mixed",
+      "choke_point_required": false,
+      "rain_intensity": {"max": 20.0},
+      "visibility_m": {"min": 150.0}
+    },
+    "expected_dsde_route": {
+      "expected_strategy_precedence": ["S3", "S5", "S6", "S7"],
+      "fallback_strategy": "S7",
+      "max_divergence_steps": 6
+    },
+    "timeline": [
+      {
+        "time_sec": 1800,
+        "property_path": "choke_point_presence",
+        "value": 1.0
+      },
+      {
+        "time_sec": 3600,
+        "property_path": "lidar_fault",
+        "value": 1.0
+      }
+    ]
+  }
+}

@@ -24,12 +24,12 @@ interface AHSScenario {
 }
 
 const SCENARIO_ICONS: Record<string, string> = {
-  S01: '🌧️', S02: '🪨', S03: '🚧', S04: '🧊',
-  S05: '🚛', S06: '📡', S07: '⛏️', S08: '🌙',
+  S01: 'RAIN', S02: 'FLAT', S03: 'CHOKE', S03A: 'CHOKE', S03B: 'DYN', S04: 'COLD',
+  S05: 'MIX', S06: 'GPS', S07: 'DENSE', S08: 'NIGHT',
 };
 
 const SCENARIO_BADGE_COLORS: Record<string, string> = {
-  S01: '#EF4444', S02: '#22C55E', S03: '#F97316', S04: '#3B82F6',
+  S01: '#EF4444', S02: '#22C55E', S03: '#F97316', S03A: '#F97316', S03B: '#FB7185', S04: '#3B82F6',
   S05: '#8B5CF6', S06: '#EAB308', S07: '#14B8A6', S08: '#6366F1',
 };
 
@@ -193,7 +193,7 @@ const ScenarioSelector: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                       )}
                     </div>
                     <div style={{ fontSize: '13px', fontWeight: 600, color: '#F1F5F9', marginTop: '4px', lineHeight: 1.3 }}>
-                      {s.name.replace(/^S0\d – /, '')}
+                      {s.name.replace(/^S0\d[A-Z]?\s[–-]\s/, '')}
                     </div>
                   </div>
                 </div>
@@ -251,3 +251,4 @@ const pillStyle: React.CSSProperties = {
 };
 
 export default ScenarioSelector;
+

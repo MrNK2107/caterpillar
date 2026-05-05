@@ -41,6 +41,21 @@
       "wind_direction_deg": 135,
       "visibility_m": 500.0
     },
+    "trigger_profile": {
+      "mode": "static",
+      "description": "High-density ore compaction in concave polygon under healthy sensors."
+    },
+    "activation_preconditions": {
+      "fleet_mix": "homogeneous",
+      "rain_intensity": {"max": 5.0},
+      "visibility_m": {"min": 300.0},
+      "terrain_slope": {"max": 0.7}
+    },
+    "expected_dsde_route": {
+      "expected_strategy_precedence": ["S2", "S3", "S4", "S6"],
+      "fallback_strategy": "S7",
+      "max_divergence_steps": 8
+    },
     "timeline": []
   }
 }

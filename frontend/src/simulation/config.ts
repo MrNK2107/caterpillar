@@ -3,6 +3,14 @@ import { MaterialProfile, ScenarioConfig, SimConfig } from './types';
 export const DEFAULT_FLEET = {
   small: 4,
   large: 4,
+  byModel: {
+    'Cat 777G': 2,
+    'Cat 785': 1,
+    'Cat 789D': 1,
+    'Cat 793F': 2,
+    'Cat 794 AC': 1,
+    'Cat 797F': 1,
+  },
 };
 
 export const CAT_TRUCK_MODELS = {
@@ -195,5 +203,11 @@ export const DEFAULT_SCENARIO: ScenarioConfig = {
     windSpeed: 4,
     windDirectionDeg: 25,
     visibilityM: 450,
+  },
+  packingObjective: {
+    coverage: 1.5,
+    slopeSafety: 1.0,
+    spacing: 1.2,
+    laneSpread: 0.8,
   },
 };

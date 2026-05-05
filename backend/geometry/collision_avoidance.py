@@ -144,6 +144,7 @@ def resolve_truck_conflicts(
     
     # Build other trucks' potential footprints
     other_footprints = []
+    other_with_spot = []
     pending = []
     
     for truck in other_trucks:
@@ -160,7 +161,9 @@ def resolve_truck_conflicts(
                 truck_footprint(tx, ty, theading,
                 getattr(tmodel, "length_m", 12.0),
                 getattr(tmodel, "width_m", 8.0)
+                )
             )
+            other_with_spot.append(truck)
         else:
             pending.append(truck)
     
@@ -168,7 +171,7 @@ def resolve_truck_conflicts(
     conflicts = []
     for i, footprint in enumerate(other_footprints):
         if my_sweep.intersects(footprint):
-            if i < len([t for t in other_trucks if t.get("assigned_spot")]):
-                conflicts.append(other_trucks[i])
+            if i < len(other_with_spot):
+                conflicts.append(other_with_spot[i])
     
     return conflicts

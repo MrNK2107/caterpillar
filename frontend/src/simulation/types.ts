@@ -48,11 +48,19 @@ export interface WeatherConfig {
   visibilityM: number;
 }
 
+export interface PackingObjectiveWeights {
+  coverage: number;
+  slopeSafety: number;
+  spacing: number;
+  laneSpread: number;
+}
+
 export interface ScenarioConfig {
   dumpPolygon: Point[];
   material: MaterialProfile;
   slopeLimits: SlopeLimits;
   weather: WeatherConfig;
+  packingObjective: PackingObjectiveWeights;
 }
 
 export interface GridCell {
@@ -74,6 +82,7 @@ export interface Pile {
 export interface FleetConfig {
   small: number;
   large: number;
+  byModel?: Record<string, number>;
 }
 
 export interface TruckModelSpec {
@@ -119,6 +128,13 @@ export interface Truck {
   dumpTimer: number;
   color: string;
   zoneName: string;
+  runtimeDiagnostics?: {
+    speedLimiter: string;
+    effectiveSpeed: number;
+    expectedSpeed: number;
+    blockedBy: string;
+    ticksSinceProgress: number;
+  };
 }
 
 export interface SimMetrics {
@@ -145,4 +161,29 @@ export interface SimConfig {
   yardWidth: number;
   yardHeight: number;
   yardPadding: number;
+}
+
+export interface DecisionState {
+  activeStrategy: string;
+  strategyLabel: string;
+  reason: string;
+  scenarioId: string;
+  scenarioName: string;
+  plannerMode: string;
+  plannerModeLabel: string;
+  plannerModeReason: string;
+  plannerModeSuppressed: boolean;
+  plannerPhase?: string;
+  plannerPhaseReason?: string;
+  spacingPatternStatus?: string;
+  waveId?: number;
+  s6Active: boolean;
+  s7Active: boolean;
+  expectedStrategies: string[];
+  triggerState: Record<string, unknown>;
+  divergenceSteps: number;
+  transitionPending: boolean;
+  pendingStrategy: string | null;
+  lastStrategyEvalTs: number | null;
+  lastSuccessfulAssignmentTs: number | null;
 }

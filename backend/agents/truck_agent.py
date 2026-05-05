@@ -69,6 +69,18 @@ class TruckAgent:
         self.assignment_retry_wait_steps: int = 0
         self.active_strategy: str = "S1"
         self.pending_strategy: Optional[str] = None
+        self.block_substate: Optional[str] = None
+        self.block_counters: Dict[str, int] = {
+            "wait_steps": 0,
+            "conflict_retries": 0,
+            "replan_attempts": 0,
+            "retreat_count": 0,
+        }
+        self.last_speed_limiter: str = "none"
+        self.last_effective_speed: float = 1.0
+        self.last_expected_speed: float = 1.0
+        self.ticks_since_progress: int = 0
+        self._prev_position_for_progress: Tuple[float, float] = self.own_position
 
         if getattr(self.truck, "current_position", None) is not None:
             self.own_position = (float(self.truck.current_position.x), float(self.truck.current_position.y))
@@ -125,13 +137,18 @@ class TruckAgent:
             self._set_position(target)
             return True
 
-        base_step = max(0.6, min(4.0, self.truck.model.length_m * 0.12))
-        step = base_step * max(0.35, min(self.speed_multiplier, 1.0))
+        base_step = max(1.0, min(6.0, self.truck.model.length_m * 0.18))
+        step = base_step * max(0.55, min(self.speed_multiplier, 1.0))
         ratio = min(1.0, step / max(distance, 1e-9))
         next_position = (
             self.own_position[0] + dx * ratio,
             self.own_position[1] + dy * ratio,
         )
+        moved_distance = math.hypot(next_position[0] - self.own_position[0], next_position[1] - self.own_position[1])
+        if moved_distance < 0.05:
+            self.ticks_since_progress += 1
+        else:
+            self.ticks_since_progress = 0
         self._set_position(next_position)
         return False
 
@@ -227,6 +244,7 @@ class TruckAgent:
         self.return_path = []
         self.return_index = 0
         self.assignment_retry_wait_steps = 0
+        self.block_substate = None
         self._set_state("REQUESTING_DUMP")
         self.update_local_state(self.own_position, self.own_state, reserved_cells=self.own_reserved_cells, eta=0.0)
 
@@ -238,6 +256,7 @@ class TruckAgent:
         self.return_path = []
         self.return_index = 0
         self.assignment_retry_wait_steps = 0
+        self.block_substate = None
         self._set_state("MOVING_TO_DUMP")
         logger.info(
             "truck=%s assignment_success target=(%.2f, %.2f) path_points=%d",
@@ -260,6 +279,18 @@ class TruckAgent:
         step_time_s: float = 1.0,
     ) -> None:
         if self.state != "MOVING_TO_DUMP":
+            return
+        if self.block_substate in {"WAITING_YIELD", "WAITING_REPLAN", "SERIALIZED_WAIT"}:
+            self.block_counters["wait_steps"] += 1
+            self.update_local_state(self.own_position, "WAITING", reserved_cells=self.own_reserved_cells, eta=float(len(self.planned_path) - self.path_index))
+            return
+        if self.block_substate == "RETREATING":
+            # bounded retreat: move one step backwards from current heading toward previous waypoint if possible
+            self.block_counters["retreat_count"] += 1
+            if self.path_index > 0:
+                retreat_target = self.planned_path[max(0, self.path_index - 1)]
+                self._advance_toward(retreat_target)
+            self.update_local_state(self.own_position, "WAITING", reserved_cells=self.own_reserved_cells, eta=float(len(self.planned_path) - self.path_index))
             return
 
         if self.path_index >= len(self.planned_path):
@@ -325,6 +356,7 @@ class TruckAgent:
         self.planned_path = []
         self.path_index = 0
         self.own_reserved_cells = set()
+        self.block_substate = None
 
         self._set_state("RETURNING")
         self.update_local_state(self.own_position, self.own_state, reserved_cells=self.own_reserved_cells, eta=float(len(self.return_path)))
@@ -336,6 +368,10 @@ class TruckAgent:
         step_time_s: float = 1.0,
     ) -> None:
         if self.state != "RETURNING":
+            return
+        if self.block_substate in {"WAITING_YIELD", "WAITING_REPLAN", "SERIALIZED_WAIT"}:
+            self.block_counters["wait_steps"] += 1
+            self.update_local_state(self.own_position, "WAITING", reserved_cells=self.own_reserved_cells, eta=float(len(self.return_path) - self.return_index))
             return
 
         if self.return_index >= len(self.return_path):
@@ -390,6 +426,15 @@ class TruckAgent:
     def current_speed_multiplier(self) -> float:
         return self.speed_multiplier
 
+    def apply_block_substate(self, substate: Optional[str]) -> None:
+        self.block_substate = substate
+        if substate is None:
+            return
+        if substate == "WAITING_REPLAN":
+            self.block_counters["replan_attempts"] += 1
+        if substate == "WAITING_YIELD":
+            self.block_counters["conflict_retries"] += 1
+
     def _weather_visibility_factor(self) -> float:
         return max(0.2, min(1.0, self.weather["visibility_m"] / 500.0))
 
@@ -441,16 +486,23 @@ class TruckAgent:
         self.p2p_negotiation_enabled = choke_point
 
         speed_multiplier = 1.0
+        limiter_reasons: List[str] = []
         if visibility < 0.55:
             speed_multiplier *= 0.7
+            limiter_reasons.append("low_visibility")
         if visibility < 0.4:
             speed_multiplier *= 0.75
+            limiter_reasons.append("very_low_visibility")
 
         too_close = any(other.state in {"DUMPING", "EN_ROUTE", "WAITING"} for other in self.local_trucks.values())
         if too_close:
             speed_multiplier *= 0.75
+            limiter_reasons.append("traffic_conflict")
 
-        self.speed_multiplier = max(0.35, min(speed_multiplier, 1.0))
+        self.speed_multiplier = max(0.55, min(speed_multiplier, 1.0))
+        self.last_effective_speed = self.speed_multiplier
+        self.last_expected_speed = 1.0
+        self.last_speed_limiter = ",".join(limiter_reasons) if limiter_reasons else "none"
 
         angle_of_repose_deg = self.material_profile.get("angle_of_repose_deg", 36.0)
         material_slope_limit = math.tan(math.radians(max(10.0, min(60.0, angle_of_repose_deg))))
@@ -471,6 +523,15 @@ class TruckAgent:
             proximity_threshold=18.0 if choke_point else 14.0,
             surface_map=surface_map,
         )
+
+    def runtime_diagnostics(self) -> Dict[str, object]:
+        return {
+            "speed_limiter": self.last_speed_limiter,
+            "effective_speed": float(self.last_effective_speed),
+            "expected_speed": float(self.last_expected_speed),
+            "blocked_by": self.block_substate or "none",
+            "ticks_since_progress": int(self.ticks_since_progress),
+        }
 
     def _negotiate_priority(self, other: LocalTruckView) -> bool:
         my_eta = float(max(0.0, self.truck.model.length_m) / max(self.speed_multiplier, 0.35))

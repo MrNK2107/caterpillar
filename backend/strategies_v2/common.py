@@ -178,6 +178,8 @@ class SystemStateView:
     material_moisture_pct: float = 0.0
     grid_spacing_m: float = DEFAULT_GRID_SPACING_M
     strict_boundary: bool = False
+    objective_weights: Dict[str, float] = field(default_factory=dict)
+    prefilter_gradient: float = 0.6
 
 
 def _lookup(source: object, *names: str, default: Any = None) -> Any:
@@ -279,6 +281,14 @@ def normalize_system_state(system_state: object) -> SystemStateView:
     material_moisture_pct = float(_lookup(system_state, "material_moisture_pct", default=0.0))
     grid_spacing_m = float(_lookup(system_state, "grid_spacing_m", "spacing_m", default=DEFAULT_GRID_SPACING_M))
     strict_boundary = bool(_lookup(system_state, "strict_boundary", default=False))
+    prefilter_gradient = float(_lookup(system_state, "prefilter_gradient", default=0.6))
+    objective_weights_raw = _lookup(system_state, "objective_weights", default={}) or {}
+    objective_weights = {
+        "coverage": float(_lookup(objective_weights_raw, "coverage", default=1.5)),
+        "slope_safety": float(_lookup(objective_weights_raw, "slope_safety", default=1.0)),
+        "spacing": float(_lookup(objective_weights_raw, "spacing", default=1.2)),
+        "lane_spread": float(_lookup(objective_weights_raw, "lane_spread", default=0.8)),
+    }
 
     return SystemStateView(
         surface_map=surface_map,
@@ -292,8 +302,12 @@ def normalize_system_state(system_state: object) -> SystemStateView:
         modifiers=modifiers,
         current_strategy=current_strategy,
         decision_reason=decision_reason,
+        material_type=material_type,
+        material_moisture_pct=material_moisture_pct,
         grid_spacing_m=grid_spacing_m,
         strict_boundary=strict_boundary,
+        objective_weights=objective_weights,
+        prefilter_gradient=prefilter_gradient,
     )
 
 
@@ -423,6 +437,53 @@ def _previous_centroid(system_state: SystemStateView) -> GridPoint:
     return system_state.dump_polygon.centroid.x, system_state.dump_polygon.centroid.y
 
 
+def _frontier_anchor(system_state: SystemStateView) -> Optional[GridPoint]:
+    """Pick a frontier anchor biased to high remaining utilization (furthest from entry)."""
+    smap = system_state.surface_map
+    if smap.rows == 0 or smap.cols == 0:
+        return None
+
+    best_point: Optional[GridPoint] = None
+    best_score = float("-inf")
+    entry = (system_state.entry_point.x, system_state.entry_point.y)
+
+    row_stride = max(1, smap.rows // 120)
+    col_stride = max(1, smap.cols // 120)
+    for row in range(1, smap.rows - 1, row_stride):
+        for col in range(1, smap.cols - 1, col_stride):
+            occ = int(smap.occupancy_grid[row, col])
+            if occ == OccupancyValue.EMPTY:
+                continue
+            # Frontier cell: occupied with at least one empty orthogonal neighbor.
+            if (
+                int(smap.occupancy_grid[row + 1, col]) != OccupancyValue.EMPTY
+                and int(smap.occupancy_grid[row - 1, col]) != OccupancyValue.EMPTY
+                and int(smap.occupancy_grid[row, col + 1]) != OccupancyValue.EMPTY
+                and int(smap.occupancy_grid[row, col - 1]) != OccupancyValue.EMPTY
+            ):
+                continue
+
+            x = smap.origin_x + (col + 0.5) * smap.resolution
+            y = smap.origin_y + (row + 0.5) * smap.resolution
+            pt = Point(x, y)
+            if not (system_state.dump_polygon.contains(pt) or system_state.dump_polygon.touches(pt)):
+                continue
+
+            # Prefer frontier that pushes filling away from entry and onto lower local height.
+            entry_dist = math.hypot(x - entry[0], y - entry[1])
+            local_height = float(smap.height_map[row, col])
+            score = entry_dist - 0.35 * local_height
+            if score > best_score:
+                best_score = score
+                best_point = (x, y)
+    return best_point
+
+
+def _truck_index(truck_id: str) -> int:
+    digits = "".join(ch for ch in str(truck_id) if ch.isdigit())
+    return int(digits) if digits else 0
+
+
 def footprint_overlaps_existing(
     candidate_point: GridPoint,
     candidate_radius: float,
@@ -462,9 +523,11 @@ def directional_centroid_candidates(
     system_state: SystemStateView,
     truck_position: GridPoint,
     truck_model: object,
+    truck_id: str = "",
     strict_boundary: bool = False,
 ) -> List[CandidateSpot]:
-    base_centroid = _previous_centroid(system_state)
+    frontier_anchor = _frontier_anchor(system_state)
+    base_centroid = frontier_anchor if frontier_anchor is not None else _previous_centroid(system_state)
     direction = _default_direction(system_state)
     
     # Get truck model pile dimensions
@@ -487,26 +550,129 @@ def directional_centroid_candidates(
     # Apply 2.0m inset to the polygon boundary
     inset_polygon = system_state.dump_polygon.buffer(-POLYGON_INSET_M)
 
+    truck_idx = _truck_index(truck_id)
+    # Lateral diversification reduces single-ridge filling in multi-truck runs.
+    lateral_unit = (-direction[1], direction[0])
+    lateral_step = max(1.8, spacing * 0.7)
+    truck_lane = (truck_idx % 3) - 1  # -1, 0, 1 lane pattern
+    lane_bias = truck_lane * lateral_step
+
     candidates: List[CandidateSpot] = []
     for angle in DEFAULT_DIRECTION_SWEEP_DEGREES:
         candidate_direction = _rotate_vector(direction, angle)
-        candidate_point = (
-            base_centroid[0] + candidate_direction[0] * spacing,
-            base_centroid[1] + candidate_direction[1] * spacing,
+        for lane_offset in (lane_bias, lane_bias + lateral_step, lane_bias - lateral_step, 0.0):
+            candidate_point = (
+                base_centroid[0] + candidate_direction[0] * spacing + lateral_unit[0] * lane_offset,
+                base_centroid[1] + candidate_direction[1] * spacing + lateral_unit[1] * lane_offset,
+            )
+
+            if not inset_polygon.contains(Point(candidate_point[0], candidate_point[1])):
+                continue
+            if not valid_centroid_step(candidate_point, truck_position, truck_model, system_state, strict_boundary=strict_boundary):
+                continue
+            candidate = candidate_from_xy(system_state.surface_map, candidate_point[0], candidate_point[1], truck_position, truck_model)
+            if candidate is not None:
+                candidates.append(candidate)
+
+    # Stronger utilization ranking: prefer low height, safe slope, frontier expansion, and spacing from recent piles.
+    uniq: Dict[Tuple[int, int], CandidateSpot] = {}
+    for c in candidates:
+        key = (c.row, c.col)
+        if key not in uniq or c.score > uniq[key].score:
+            uniq[key] = c
+    candidates = list(uniq.values())
+
+    last_dumps = list(system_state.dump_records[-20:])
+
+    def _util_score(c: CandidateSpot) -> float:
+        entry_dist = math.hypot(c.x - system_state.entry_point.x, c.y - system_state.entry_point.y)
+        nearest_dump_dist = 0.0
+        if last_dumps:
+            nearest_dump_dist = min(math.hypot(c.x - dx, c.y - dy) for dx, dy, _ in last_dumps)
+        ridge_penalty = 0.0
+        orth_spread = 0.0
+        if last_dumps and len(last_dumps) >= 2:
+            x1, y1, _ = last_dumps[-2]
+            x2, y2, _ = last_dumps[-1]
+            vx, vy = (x2 - x1), (y2 - y1)
+            norm = math.hypot(vx, vy)
+            if norm > 1e-6:
+                # Small penalty for sitting exactly on latest ridge line.
+                ridge_penalty = abs((c.x - x2) * vy - (c.y - y2) * vx) / norm
+        if last_dumps:
+            mean_x = sum(d[0] for d in last_dumps) / len(last_dumps)
+            mean_y = sum(d[1] for d in last_dumps) / len(last_dumps)
+            orth_spread = abs((c.x - mean_x) * lateral_unit[0] + (c.y - mean_y) * lateral_unit[1])
+        return (
+            1.6 * c.score
+            + 0.08 * entry_dist
+            + 0.12 * min(nearest_dump_dist, spacing * 2.0)
+            + 0.05 * ridge_penalty
+            + 0.16 * orth_spread
+            - 0.15 * c.height
+            - 0.25 * c.slope
         )
-        
-        # Ensure target center is within the inset boundary
-        if not inset_polygon.contains(Point(candidate_point[0], candidate_point[1])):
-            continue
 
-        if not valid_centroid_step(candidate_point, truck_position, truck_model, system_state, strict_boundary=strict_boundary):
-            continue
-        candidate = candidate_from_xy(system_state.surface_map, candidate_point[0], candidate_point[1], truck_position, truck_model)
-        if candidate is not None:
-            candidates.append(candidate)
-
-    candidates.sort(key=lambda candidate: (-candidate.score, candidate.distance, candidate.slope, candidate.row, candidate.col))
+    candidates.sort(key=lambda c: _util_score(c), reverse=True)
     return candidates
+
+
+def rank_candidates_for_utilization(
+    candidates: Sequence[CandidateSpot],
+    system_state: SystemStateView,
+    truck_id: str = "",
+) -> List[CandidateSpot]:
+    if not candidates:
+        return []
+    direction = _default_direction(system_state)
+    perp = (-direction[1], direction[0])
+    lane_bias = ((_truck_index(truck_id) % 3) - 1) * 1.8
+    last_dumps = list(system_state.dump_records[-20:])
+    w = system_state.objective_weights or {}
+    w_cov = float(w.get("coverage", 1.5))
+    w_slope = float(w.get("slope_safety", 1.0))
+    w_spacing = float(w.get("spacing", 1.2))
+    w_lane = float(w.get("lane_spread", 0.8))
+
+    def _score(c: CandidateSpot) -> float:
+        entry_dist = math.hypot(c.x - system_state.entry_point.x, c.y - system_state.entry_point.y)
+        nearest = 0.0
+        orth_spread = 0.0
+        if last_dumps:
+            nearest = min(math.hypot(c.x - dx, c.y - dy) for dx, dy, _ in last_dumps)
+            mean_x = sum(d[0] for d in last_dumps) / len(last_dumps)
+            mean_y = sum(d[1] for d in last_dumps) / len(last_dumps)
+            orth_spread = abs((c.x - mean_x) * perp[0] + (c.y - mean_y) * perp[1])
+        lateral = abs((c.x - system_state.entry_point.x) * perp[0] + (c.y - system_state.entry_point.y) * perp[1] - lane_bias)
+        return (
+            w_cov * c.score
+            + (0.04 + 0.02 * w_cov) * entry_dist
+            + (0.05 + 0.04 * w_spacing) * min(nearest, 6.0)
+            + (0.05 + 0.08 * w_lane) * orth_spread
+            + (0.02 + 0.03 * w_lane) * lateral
+            - (0.10 + 0.12 * w_slope) * c.slope
+        )
+
+    return sorted(candidates, key=_score, reverse=True)
+
+
+def build_candidate_explainability(
+    candidate: CandidateSpot,
+    system_state: SystemStateView,
+    truck_id: str = "",
+) -> str:
+    w = system_state.objective_weights or {}
+    w_cov = float(w.get("coverage", 1.5))
+    w_slope = float(w.get("slope_safety", 1.0))
+    w_spacing = float(w.get("spacing", 1.2))
+    w_lane = float(w.get("lane_spread", 0.8))
+    frontier_bias = math.hypot(candidate.x - system_state.entry_point.x, candidate.y - system_state.entry_point.y)
+    return (
+        f"chosen for frontier expansion={frontier_bias:.1f}, "
+        f"lane spread target (truck {truck_id}), "
+        f"slope safety={candidate.slope:.3f}; "
+        f"weights coverage={w_cov:.2f}, slope={w_slope:.2f}, spacing={w_spacing:.2f}, lane={w_lane:.2f}"
+    )
 
 
 def candidate_to_path(candidate: CandidateSpot, truck_state: TruckStateView, system_state: SystemStateView, allow_dynamic_planning: bool = True) -> List[GridPoint]:

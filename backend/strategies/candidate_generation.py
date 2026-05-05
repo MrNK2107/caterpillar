@@ -29,6 +29,16 @@ class CandidateSpot:
     distance: float
     slope: float
     score: float
+    explainability: str = ""
+    slot_id: str = ""
+    row_id: str = ""
+    anchor_band: str = ""
+    slot_parity: str = ""
+    slot_state: str = ""
+    reserve_class: str = ""
+    wave_id: int = 0
+    candidate_source: str = ""
+    fallback_reason: str = ""
 
 
 def _cell_center(surface_map: SurfaceMap, row: int, col: int) -> Tuple[float, float]:
@@ -78,6 +88,7 @@ def generate_candidate_spots(
     truck_position: Tuple[float, float],
     truck_model: object,
     entry_point: object,
+    prefilter_gradient: float = 0.6,
 ) -> List[CandidateSpot]:
     if surface_map.rows == 0 or surface_map.cols == 0:
         logger.info("candidate_generation skipped: empty surface grid")
@@ -106,7 +117,8 @@ def generate_candidate_spots(
             height = float(surface_map.height_map[row, col])
             distance = math.hypot(x - truck_position[0], y - truck_position[1])
             slope = _local_slope(surface_map, row, col)
-            if slope > DEFAULT_SLOPE_THRESHOLD:
+            effective_prefilter = max(0.05, float(prefilter_gradient))
+            if slope > effective_prefilter:
                 strict_slope_hits += 1
             score = _score_candidate(height, distance, slope)
 
@@ -125,6 +137,9 @@ def generate_candidate_spots(
                 fallback_best_score = fallback_candidate.score
 
             reachable = is_reachable(surface_map, entry_point, (row, col))
+            if slope > effective_prefilter:
+                continue
+
             if not reachable:
                 bfs_rejections += 1
                 if not DEBUG_RELAX_REACHABILITY:

@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+import os
 from shapely.geometry import Point
 
 from strategies.candidate_generation import generate_candidate_spots
 
-from .common import AssignmentResult, candidate_to_path, is_safe_candidate, log_assignment, normalize_assignment_inputs
+from .common import AssignmentResult, build_candidate_explainability, candidate_to_path, is_safe_candidate, log_assignment, normalize_assignment_inputs, rank_candidates_for_utilization
+from .centralized_row_planner import get_centralized_assignment
 
 STRATEGY_NAME = "S4"
+LEGACY_S3_ENABLED = os.getenv("ADPS_LEGACY_S3", "0") == "1"
 
 
 def get_assignment(truck_state: object, system_state: object) -> AssignmentResult:
+    if not LEGACY_S3_ENABLED:
+        return get_centralized_assignment(
+            truck_state,
+            system_state,
+            strategy_name=STRATEGY_NAME,
+            strict_boundary=True,
+        )
+
     truck_view, system_view = normalize_assignment_inputs(truck_state, system_state)
     candidates = generate_candidate_spots(
         surface_map=system_view.surface_map,
@@ -17,7 +28,9 @@ def get_assignment(truck_state: object, system_state: object) -> AssignmentResul
         truck_position=truck_view.position,
         truck_model=getattr(truck_view.truck, "model", getattr(truck_view.truck, "truck_model", None)),
         entry_point=system_view.entry_point,
+        prefilter_gradient=float(getattr(system_view, "prefilter_gradient", 0.6)),
     )
+    candidates = rank_candidates_for_utilization(candidates, system_view, truck_view.truck_id)
 
     for candidate in candidates:
         if not is_safe_candidate(candidate, system_view, strict_boundary=True):
@@ -26,6 +39,7 @@ def get_assignment(truck_state: object, system_state: object) -> AssignmentResul
         path_points = candidate_to_path(candidate, truck_view, system_view, allow_dynamic_planning=True)
         if not all(system_view.dump_polygon.contains(Point(x, y)) for x, y in path_points):
             continue
+        candidate.explainability = build_candidate_explainability(candidate, system_view, truck_view.truck_id)
 
         log_assignment(
             STRATEGY_NAME,

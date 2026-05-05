@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { GridCell, Zone, Truck, SimMetrics, Point, TruckState, Pile, FleetConfig, ScenarioConfig } from './types';
+import { GridCell, Zone, Truck, SimMetrics, Point, TruckState, Pile, FleetConfig, ScenarioConfig, DecisionState } from './types';
 import { DEFAULT_CONFIG, DEFAULT_FLEET, DEFAULT_SCENARIO, ZONE_COLORS, ZONE_BORDER_COLORS, TRUCK_COLORS, ENTRY_POINT, CAT_TRUCK_MODELS, CAT_MODEL_GROUPS } from './config';
 import { playDumpSound } from './sounds';
 // Removed particles
@@ -11,6 +11,17 @@ interface SimulationState {
   viewMode: '2d' | '3d';
   showHeatmap: boolean;
   tick: number;
+  runLoopState: 'idle' | 'starting' | 'running' | 'degraded' | 'stopped' | 'error';
+  backendHealth: {
+    lastSuccessfulTickAt: number | null;
+    lastStepLatencyMs: number | null;
+    consecutiveFailures: number;
+    failureReason: string | null;
+  };
+  startInFlight: boolean;
+  healthProbeCountWindow: number;
+  assignmentDiagnostics: Record<string, { status: string; reason: string; attempts: number; backoff_steps: number; assignment_trace?: Record<string, unknown> }>;
+  decisionState: DecisionState;
 
   // Custom Yard Drawing
   isDrawing: boolean;
@@ -18,6 +29,8 @@ interface SimulationState {
   settingEntryPoint: boolean;
   entryPoint: Point | null;
   yardPolygon: Point[];
+  initPhase: 'ready' | 'drawing' | 'entry_point' | 'initializing' | 'error';
+  initError: string | null;
 
   // Data
   grid: GridCell[][];
@@ -28,19 +41,23 @@ interface SimulationState {
   fleetConfig: FleetConfig;
   scenario: ScenarioConfig;
   metrics: SimMetrics;
+  messageLog: Array<{ source: string; message: string; timestamp: number }>;
   // Removed particles
   currentZoneIndex: number; // which zone is being filled
 
   // Actions
   init: () => Promise<void>;
-  start: () => void;
+  start: () => Promise<void>;
   pause: () => void;
   reset: () => Promise<void>;
   setSpeed: (s: number) => void;
   setViewMode: (m: '2d' | '3d') => void;
   toggleHeatmap: () => void;
   setFleetCounts: (config: FleetConfig) => Promise<void>;
-  step: () => void;
+  setFleetModelCounts: (modelCounts: Record<string, number>) => Promise<void>;
+  setPackingObjectiveWeights: (weights: Partial<ScenarioConfig['packingObjective']>) => Promise<void>;
+  addLogMessage: (source: string, message: string) => void;
+  step: () => Promise<void>;
   
   // Custom Yard Actions
   addPolygonVertex: (p: Point) => void;
@@ -49,16 +66,46 @@ interface SimulationState {
   setEntryPoint: (p: Point) => void;
   resetDrawing: () => void;
   startDrawingMode: () => void;
-  submitCustomYard: () => Promise<void>;
+  submitCustomYard: () => Promise<boolean>;
 }
 
+const DEFAULT_DECISION_STATE: DecisionState = {
+  activeStrategy: "UNKNOWN",
+  strategyLabel: "Pending evaluation",
+  reason: "Strategy not evaluated yet",
+  scenarioId: "custom",
+  scenarioName: "custom",
+  plannerMode: "FALLBACK",
+  plannerModeLabel: "Fallback",
+  plannerModeReason: "pending",
+  plannerModeSuppressed: false,
+  plannerPhase: "backfill",
+  plannerPhaseReason: "pending",
+  spacingPatternStatus: "inactive",
+  waveId: 0,
+  s6Active: false,
+  s7Active: false,
+  expectedStrategies: [],
+  triggerState: {},
+  divergenceSteps: 0,
+  transitionPending: false,
+  pendingStrategy: null,
+  lastStrategyEvalTs: null,
+  lastSuccessfulAssignmentTs: null,
+};
+
 const API_BASE = 'http://localhost:8000/api';
-const DEMO_LOOP_MODE = false;
+const API_BASE_V1 = 'http://localhost:8000/api/v1';
+const INTEGRATED_BACKEND_MODE = (import.meta.env.VITE_ADPS_MODE ?? 'integrated') !== 'demo_local_mode';
+const DEMO_LOOP_MODE = !INTEGRATED_BACKEND_MODE;
 const DEMO_MIN_SPACING = 26;
 const DEADLOCK_WAIT_STEPS = 20;
 
 function getTruckStagingOffset(index: number, total: number) {
-  return (index - (Math.max(total, 1) - 1) / 2) * 18;
+  const clampedTotal = Math.max(total, 1);
+  const maxSpan = Math.max(160, DEFAULT_CONFIG.yardHeight - DEFAULT_CONFIG.yardPadding * 3.2);
+  const spacing = clampedTotal > 1 ? Math.min(36, maxSpan / (clampedTotal - 1)) : 0;
+  return (index - (clampedTotal - 1) / 2) * spacing;
 }
 
 function getTruckModel(modelName: string) {
@@ -130,8 +177,45 @@ async function registerTruckWithBackend(truck: Truck) {
 }
 
 let isRequestingLock = new Set<number>();
-let backendStepIntervalId: ReturnType<typeof globalThis.setInterval> | null = null;
+let backendStepIntervalId: ReturnType<typeof globalThis.setTimeout> | null = null;
 let backendStepInFlight = false;
+let backendLoopToken = 0;
+let startInFlight = false;
+let lastHealthCheckAtMs = 0;
+let healthProbeTimestamps: number[] = [];
+const BACKEND_STEP_FAILURE_THRESHOLD = 3;
+const BACKEND_STEP_INTERVAL_MS = 200;
+const HEALTH_CHECK_COOLDOWN_MS = 1500;
+
+type BackendStepResult =
+  | { ok: true; tick: number; latencyMs: number }
+  | { ok: false; reason: string; code?: string; latencyMs?: number };
+
+function hydrateGridFromBackendSurface(grid: GridCell[][], surfaceLayers: any): GridCell[][] {
+  if (!surfaceLayers || !Array.isArray(surfaceLayers.height)) return grid;
+
+  const rows = Number(surfaceLayers.rows ?? 0);
+  const cols = Number(surfaceLayers.cols ?? 0);
+  const resolution = Number(surfaceLayers.resolution ?? DEFAULT_CONFIG.cellSize);
+  const originX = Number(surfaceLayers.origin_x ?? 0);
+  const originY = Number(surfaceLayers.origin_y ?? 0);
+  const heightFlat = surfaceLayers.height as number[];
+
+  if (!rows || !cols || heightFlat.length < rows * cols) return grid;
+
+  return grid.map((rowCells) =>
+    rowCells.map((cell) => {
+      const rowIdx = Math.floor((cell.y - originY) / resolution);
+      const colIdx = Math.floor((cell.x - originX) / resolution);
+      if (rowIdx < 0 || rowIdx >= rows || colIdx < 0 || colIdx >= cols) {
+        return { ...cell, height: 0, filled: false };
+      }
+      const idx = rowIdx * cols + colIdx;
+      const h = Number(heightFlat[idx] ?? 0);
+      return { ...cell, height: h, filled: h > 0.25 };
+    }),
+  );
+}
 
 function mapBackendTruckState(rawState: string | undefined, rawAgentState: string | undefined): TruckState {
   const agentState = (rawAgentState || '').toUpperCase();
@@ -174,19 +258,68 @@ function normalizeMetricsFromBackend(backendMetrics: any, current: SimMetrics): 
   };
 }
 
-async function runBackendStepTick() {
-  if (backendStepInFlight) return;
+async function runBackendStepTick(): Promise<BackendStepResult> {
+  if (backendStepInFlight) return { ok: false, reason: 'Step already in flight', code: 'STEP_IN_FLIGHT' };
   backendStepInFlight = true;
+  const startedAt = Date.now();
   try {
-    const res = await fetch('http://127.0.0.1:8000/api/step', { method: 'POST' });
+    const res = await fetch(`${API_BASE_V1}/step`, { method: 'POST' });
     if (!res.ok) {
-      throw new Error(`Backend step failed: ${res.status}`);
+      return {
+        ok: false,
+        reason: `Backend step failed (${res.status})`,
+        code: 'HTTP_STEP_FAILED',
+        latencyMs: Date.now() - startedAt,
+      };
     }
 
     const data = await res.json();
+    if (!data?.ok) {
+      return {
+        ok: false,
+        reason: String(data?.error_message ?? 'Backend step rejected'),
+        code: String(data?.error_code ?? 'STEP_REJECTED'),
+        latencyMs: Date.now() - startedAt,
+      };
+    }
+
     useSimulationStore.setState((state) => {
-      const backendTrucks = (data?.trucks ?? {}) as Record<string, any>;
-      const blockedCellsRaw = Array.isArray(data?.blocked_cells) ? data.blocked_cells : [];
+      const backendTrucks = (data?.state?.trucks ?? data?.trucks ?? {}) as Record<string, any>;
+      const blockedCellsRaw = Array.isArray(data?.state?.blocked_cells)
+        ? data.state.blocked_cells
+        : Array.isArray(data?.blocked_cells)
+          ? data.blocked_cells
+          : [];
+      const surfaceLayers = data?.state?.surface_layers ?? data?.surface_layers;
+      const backendMetrics = data?.metrics ?? data?.state?.metrics;
+      const backendTick = Number(data?.tick ?? state.tick + 1);
+      const assignmentDiagnostics = (data?.truck_assignment_diagnostics ?? data?.state?.truck_assignment_diagnostics ?? {}) as Record<string, { status: string; reason: string; attempts: number; backoff_steps: number; assignment_trace?: Record<string, unknown> }>;
+      const rawDecision = data?.state?.decision_state ?? data?.decision_state ?? {};
+      const decisionState: DecisionState = {
+        activeStrategy: String(rawDecision?.active_strategy ?? "UNKNOWN"),
+        strategyLabel: String(rawDecision?.strategy_label ?? "Pending evaluation"),
+        reason: String(rawDecision?.strategy_reason ?? "Strategy not evaluated yet"),
+        scenarioId: String(rawDecision?.scenario_id ?? state.decisionState.scenarioId ?? "custom"),
+        scenarioName: String(rawDecision?.scenario_name ?? state.decisionState.scenarioName ?? "custom"),
+        plannerMode: String(rawDecision?.planner_mode ?? state.decisionState.plannerMode ?? "FALLBACK"),
+        plannerModeLabel: String(rawDecision?.planner_mode_label ?? state.decisionState.plannerModeLabel ?? "Fallback"),
+        plannerModeReason: String(rawDecision?.planner_mode_reason ?? state.decisionState.plannerModeReason ?? "pending"),
+        plannerModeSuppressed: Boolean(rawDecision?.planner_mode_suppressed ?? false),
+        plannerPhase: String(rawDecision?.planner_phase ?? state.decisionState.plannerPhase ?? "backfill"),
+        plannerPhaseReason: String(rawDecision?.planner_phase_reason ?? state.decisionState.plannerPhaseReason ?? "pending"),
+        spacingPatternStatus: String(rawDecision?.spacing_pattern_status ?? state.decisionState.spacingPatternStatus ?? "inactive"),
+        waveId: Number(rawDecision?.wave_id ?? state.decisionState.waveId ?? 0),
+        s6Active: Boolean(rawDecision?.s6_active ?? false),
+        s7Active: Boolean(rawDecision?.s7_active ?? false),
+        expectedStrategies: Array.isArray(rawDecision?.expected_strategies) ? rawDecision.expected_strategies.map((s: unknown) => String(s)) : [],
+        triggerState: (rawDecision?.trigger_evaluation ?? {}) as Record<string, unknown>,
+        divergenceSteps: Number(rawDecision?.divergence_steps ?? 0),
+        transitionPending: Boolean(rawDecision?.transition_pending ?? false),
+        pendingStrategy: rawDecision?.pending_strategy ? String(rawDecision.pending_strategy) : null,
+        lastStrategyEvalTs: typeof rawDecision?.last_strategy_eval_ts === "number" ? rawDecision.last_strategy_eval_ts : null,
+        lastSuccessfulAssignmentTs: typeof rawDecision?.last_successful_assignment_ts === "number" ? rawDecision.last_successful_assignment_ts : null,
+      };
+
       const newTrucks = state.trucks.map((truck) => {
         const backendTruck = backendTrucks[truck.id.toString()];
         if (!backendTruck) {
@@ -212,12 +345,26 @@ async function runBackendStepTick() {
         }
 
         next.state = mapBackendTruckState(backendTruck.state, backendTruck.agent_state);
+        const runtime = backendTruck.runtime_diagnostics ?? {};
+        next.runtimeDiagnostics = {
+          speedLimiter: String(runtime.speed_limiter ?? "none"),
+          effectiveSpeed: Number(runtime.effective_speed ?? 1.0),
+          expectedSpeed: Number(runtime.expected_speed ?? 1.0),
+          blockedBy: String(runtime.blocked_by ?? "none"),
+          ticksSinceProgress: Number(runtime.ticks_since_progress ?? 0),
+        };
         if (Array.isArray(backendTruck.planned_path) && backendTruck.planned_path.length > 0) {
           next.path = backendTruck.planned_path
             .filter((point: any) => typeof point?.x === 'number' && typeof point?.y === 'number')
             .map((point: any) => ({ x: point.x, y: point.y }));
         } else {
           next.path = null;
+        }
+        // Request phase should not keep stale visuals from prior assignments.
+        if (next.state === 'requesting_dump' || next.state === 'waiting' || next.state === 'idle') {
+          next.path = null;
+          next.targetX = next.x;
+          next.targetY = next.y;
         }
         next.pathIndex = 0;
         next.waitTimer = 0;
@@ -231,33 +378,128 @@ async function runBackendStepTick() {
 
       return {
         trucks: newTrucks,
+        grid: hydrateGridFromBackendSurface(state.grid, surfaceLayers),
         blockedCells: blockedCellsRaw
           .filter((cell: any) => typeof cell?.x === 'number' && typeof cell?.y === 'number')
           .map((cell: any) => ({ x: cell.x, y: cell.y })),
-        metrics: normalizeMetricsFromBackend(data?.metrics, state.metrics),
-        tick: state.tick + 1,
+        metrics: normalizeMetricsFromBackend(backendMetrics, state.metrics),
+        tick: backendTick,
+        assignmentDiagnostics,
+        decisionState,
       };
     });
+
+    return { ok: true, tick: Number(data?.tick ?? 0), latencyMs: Date.now() - startedAt };
   } catch (e) {
     console.error('Error stepping backend simulation', e);
+    return {
+      ok: false,
+      reason: e instanceof Error ? e.message : 'Backend step transport error',
+      code: 'STEP_TRANSPORT_ERROR',
+      latencyMs: Date.now() - startedAt,
+    };
   } finally {
     backendStepInFlight = false;
   }
 }
 
-function startBackendLoop() {
-  if (backendStepIntervalId !== null) return;
-  backendStepIntervalId = globalThis.setInterval(() => {
-    void runBackendStepTick();
-  }, 200);
-  void runBackendStepTick();
-}
-
 function stopBackendLoop() {
   if (backendStepIntervalId !== null) {
-    globalThis.clearInterval(backendStepIntervalId);
+    globalThis.clearTimeout(backendStepIntervalId);
     backendStepIntervalId = null;
   }
+  backendLoopToken += 1;
+}
+
+async function checkBackendReadiness() {
+  const now = Date.now();
+  if (now - lastHealthCheckAtMs < HEALTH_CHECK_COOLDOWN_MS) {
+    return;
+  }
+  lastHealthCheckAtMs = now;
+  healthProbeTimestamps = [...healthProbeTimestamps, now].filter((ts) => now - ts <= 30_000);
+  useSimulationStore.setState({ healthProbeCountWindow: healthProbeTimestamps.length });
+  const res = await fetch(`${API_BASE_V1}/health`);
+  if (!res.ok) {
+    throw new Error(`Backend health check failed (${res.status})`);
+  }
+  const data = await res.json();
+  if (!data?.ok || !data?.yard_initialized) {
+    throw new Error(String(data?.message ?? 'Backend not ready'));
+  }
+}
+
+async function executeBackendStep(opts: { fromLoop: boolean; token?: number }) {
+  const result = await runBackendStepTick();
+  const state = useSimulationStore.getState();
+
+  if (!result.ok && result.code === 'STEP_IN_FLIGHT') {
+    return result;
+  }
+
+  if (result.ok) {
+    useSimulationStore.setState({
+      runLoopState: state.running ? 'running' : 'idle',
+      backendHealth: {
+        lastSuccessfulTickAt: Date.now(),
+        lastStepLatencyMs: result.latencyMs,
+        consecutiveFailures: 0,
+        failureReason: null,
+      },
+    });
+    return result;
+  }
+
+  const nextFailures = state.backendHealth.consecutiveFailures + 1;
+  const nextRunLoopState = nextFailures >= BACKEND_STEP_FAILURE_THRESHOLD ? 'error' : 'degraded';
+  const nextRunning = nextFailures >= BACKEND_STEP_FAILURE_THRESHOLD ? false : state.running;
+  useSimulationStore.setState({
+    running: nextRunning,
+    runLoopState: nextRunLoopState,
+    backendHealth: {
+      ...state.backendHealth,
+      lastStepLatencyMs: result.latencyMs ?? state.backendHealth.lastStepLatencyMs,
+      consecutiveFailures: nextFailures,
+      failureReason: result.reason,
+    },
+  });
+  useSimulationStore.getState().addLogMessage(
+    'RUN',
+    `Step failed (${result.code ?? 'STEP_ERROR'}): ${result.reason}. Consecutive failures: ${nextFailures}.`,
+  );
+
+  if (nextFailures >= BACKEND_STEP_FAILURE_THRESHOLD) {
+    stopBackendLoop();
+    useSimulationStore.getState().addLogMessage(
+      'RUN',
+      'Run loop auto-stopped after repeated backend step failures.',
+    );
+    return result;
+  }
+
+  if (opts.fromLoop && opts.token === backendLoopToken && state.running) {
+    const retryDelayMs = Math.min(1200, 250 * nextFailures);
+    globalThis.setTimeout(() => {
+      if (opts.token !== backendLoopToken || !useSimulationStore.getState().running) return;
+      void executeBackendStep({ fromLoop: true, token: opts.token });
+    }, retryDelayMs);
+  }
+
+  return result;
+}
+
+function startBackendLoop() {
+  if (backendStepIntervalId !== null) return;
+  const token = ++backendLoopToken;
+  const runOnce = async () => {
+    if (token !== backendLoopToken || !useSimulationStore.getState().running) return;
+    await executeBackendStep({ fromLoop: true, token });
+    if (token !== backendLoopToken || !useSimulationStore.getState().running) return;
+    backendStepIntervalId = globalThis.setTimeout(() => {
+      void runOnce();
+    }, BACKEND_STEP_INTERVAL_MS);
+  };
+  void runOnce();
 }
 
 async function requestDump(truckId: number, currentX: number, currentY: number, zoneId: number) {
@@ -294,6 +536,12 @@ async function requestDump(truckId: number, currentX: number, currentY: number, 
 
     const data = await res.json();
     if (data?.status === 'no_assignment') {
+      if (data?.hold_decision?.alert_code) {
+        useSimulationStore.getState().addLogMessage(
+          'ALERT',
+          `${data.hold_decision.alert_code}: ${data.hold_decision.escalation_hint || 'Retrying assignment'}`
+        );
+      }
       useSimulationStore.setState(state => {
         const newTrucks = [...state.trucks];
         const t = newTrucks.find(t => t.id === truckId);
@@ -311,6 +559,10 @@ async function requestDump(truckId: number, currentX: number, currentY: number, 
 
     const target = data.target;
     const path = data.path;
+    const explainability = data?.explainability ? String(data.explainability) : '';
+    if (explainability) {
+      useSimulationStore.getState().addLogMessage('PLANNER', `T${truckId}: ${explainability}`);
+    }
     useSimulationStore.setState(state => {
       const newTrucks = [...state.trucks];
       const t = newTrucks.find(t => t.id === truckId);
@@ -485,11 +737,22 @@ function assignZones(grid: GridCell[][]): Zone[] {
 
 function createTrucks(zones: Zone[], ePoint: Point = ENTRY_POINT, fleetConfig: FleetConfig = DEFAULT_FLEET): Truck[] {
   const trucks: Truck[] = [];
-  const truckModelNames: string[] = [
-    ...Array.from({ length: Math.max(0, fleetConfig.large) }, (_, i) => CAT_MODEL_GROUPS.large[i % CAT_MODEL_GROUPS.large.length]),
-    ...Array.from({ length: Math.max(0, fleetConfig.small) }, (_, i) => CAT_MODEL_GROUPS.small[i % CAT_MODEL_GROUPS.small.length]),
-  ];
+  const normalizedByModel = Object.entries(fleetConfig.byModel ?? {})
+    .filter(([modelName]) => Boolean(getTruckModel(modelName)))
+    .reduce<Record<string, number>>((acc, [modelName, count]) => {
+      acc[modelName] = Math.max(0, Math.floor(Number(count) || 0));
+      return acc;
+    }, {});
+
+  const hasModelBreakdown = Object.values(normalizedByModel).some((count) => count > 0);
+  const truckModelNames: string[] = hasModelBreakdown
+    ? Object.entries(normalizedByModel).flatMap(([modelName, count]) => Array.from({ length: count }, () => modelName))
+    : [
+        ...Array.from({ length: Math.max(0, fleetConfig.large) }, (_, i) => CAT_MODEL_GROUPS.large[i % CAT_MODEL_GROUPS.large.length]),
+        ...Array.from({ length: Math.max(0, fleetConfig.small) }, (_, i) => CAT_MODEL_GROUPS.small[i % CAT_MODEL_GROUPS.small.length]),
+      ];
   const totalTrucks = truckModelNames.length;
+  const stagingX = Math.max(DEFAULT_CONFIG.yardPadding + 12, ePoint.x + 34);
 
   for (let i = 0; i < totalTrucks; i++) {
     const zoneId = zones.length > 0 ? i % zones.length : 0;
@@ -501,7 +764,7 @@ function createTrucks(zones: Zone[], ePoint: Point = ENTRY_POINT, fleetConfig: F
       label: `${modelCode}-${String(i + 1).padStart(2, '0')}`,
       modelName,
       model,
-      x: ePoint.x,
+      x: stagingX + (i % 2 === 0 ? 0 : 10),
       y: ePoint.y + getTruckStagingOffset(i, totalTrucks),
       angle: 0,
       vx: 0,
@@ -745,8 +1008,20 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   viewMode: '2d',
   showHeatmap: false,
   tick: 0,
+  runLoopState: 'idle',
+  backendHealth: {
+    lastSuccessfulTickAt: null,
+    lastStepLatencyMs: null,
+    consecutiveFailures: 0,
+    failureReason: null,
+  },
+  startInFlight: false,
+  healthProbeCountWindow: 0,
+  assignmentDiagnostics: {},
+  decisionState: DEFAULT_DECISION_STATE,
   fleetConfig: DEFAULT_FLEET,
   scenario: DEFAULT_SCENARIO,
+  messageLog: [],
   grid: [],
   zones: [],
   trucks: [],
@@ -760,6 +1035,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   settingEntryPoint: false,
   entryPoint: null,
   yardPolygon: [],
+  initPhase: 'ready',
+  initError: null,
   metrics: {
     totalDumps: 0,
     missedDumps: 0,
@@ -810,6 +1087,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
             scenario: {
               dump_polygon: scenario.dumpPolygon,
               material_type: scenario.material.type,
+              material_moisture_pct: scenario.material.materialMoisturePct,
               slope_limits: {
                 max_cell_slope: scenario.slopeLimits.maxCellSlope,
                 max_average_slope: scenario.slopeLimits.maxAverageSlope,
@@ -819,6 +1097,29 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
                 wind_speed: scenario.weather.windSpeed,
                 wind_direction_deg: scenario.weather.windDirectionDeg,
                 visibility_m: scenario.weather.visibilityM,
+              },
+              packing_objective: {
+                coverage: scenario.packingObjective.coverage,
+                slope_safety: scenario.packingObjective.slopeSafety,
+                spacing: scenario.packingObjective.spacing,
+                lane_spread: scenario.packingObjective.laneSpread,
+              },
+              prefilter_gradient: 0.6,
+              prefilter_gradient_source: 'inferred',
+              dsde_thresholds: {
+                fill_low: 70.0,
+                fill_high: 80.0,
+                gps_degraded_accuracy_m: 0.5,
+                v2v_timeout_s: 10.0,
+              },
+              timing: {
+                reeval_normal_s: 30.0,
+                reeval_degraded_s: 10.0,
+                strategy_transition_s: 60.0,
+              },
+              degree_safety_limits: {
+                s6_trigger_deg: 25.0,
+                scenario_max_deg: 28.0,
               },
             },
           })
@@ -888,6 +1189,17 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       currentZoneIndex: 0,
       tick: 0,
       running: false,
+      runLoopState: 'idle',
+      backendHealth: {
+        lastSuccessfulTickAt: null,
+        lastStepLatencyMs: null,
+        consecutiveFailures: 0,
+        failureReason: null,
+      },
+      startInFlight: false,
+      healthProbeCountWindow: 0,
+      assignmentDiagnostics: {},
+      decisionState: DEFAULT_DECISION_STATE,
       metrics: {
         totalDumps: 0,
         missedDumps: 0,
@@ -901,33 +1213,116 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
         peakPoints: null,
       },
       scenario,
+      messageLog: [],
+      initPhase: 'ready',
+      initError: null,
     });
   },
 
-  start: () => {
-    set({ running: true });
-    if (!DEMO_LOOP_MODE) {
+  start: async () => {
+    if (startInFlight) return;
+    if (DEMO_LOOP_MODE) {
+      set({ running: true, runLoopState: 'running' });
+      return;
+    }
+
+    startInFlight = true;
+    set({ runLoopState: 'starting', startInFlight: true });
+    try {
+      await checkBackendReadiness();
+      const firstStep = await executeBackendStep({ fromLoop: false });
+      if (!firstStep.ok) {
+        set({ running: false, runLoopState: 'error', startInFlight: false });
+        startInFlight = false;
+        return;
+      }
+      set({ running: true, runLoopState: 'running', startInFlight: false });
+      get().addLogMessage('RUN', 'Run loop started with backend-authoritative stepping.');
       startBackendLoop();
+    } catch (e) {
+      const reason = e instanceof Error ? e.message : 'Backend readiness check failed';
+      set((state) => ({
+        running: false,
+        runLoopState: 'error',
+        startInFlight: false,
+        backendHealth: {
+          ...state.backendHealth,
+          failureReason: reason,
+          consecutiveFailures: Math.max(1, state.backendHealth.consecutiveFailures),
+        },
+      }));
+      get().addLogMessage('RUN', `Run rejected: ${reason}`);
+    } finally {
+      startInFlight = false;
     }
   },
   pause: () => {
     if (!DEMO_LOOP_MODE) {
       stopBackendLoop();
     }
-    set({ running: false });
+    startInFlight = false;
+    set((state) => ({
+      running: false,
+      runLoopState: state.runLoopState === 'error' ? 'error' : 'stopped',
+      startInFlight: false,
+    }));
   },
   reset: async () => {
     if (!DEMO_LOOP_MODE) {
       stopBackendLoop();
     }
+    startInFlight = false;
     await get().init();
   },
   setSpeed: (s) => set({ speed: s }),
   setViewMode: (m) => set({ viewMode: m }),
   toggleHeatmap: () => set(s => ({ showHeatmap: !s.showHeatmap })),
   setFleetCounts: async (config) => {
-    set({ fleetConfig: { small: Math.max(0, config.small), large: Math.max(0, config.large) } });
+    const normalized = {
+      small: Math.max(0, config.small),
+      large: Math.max(0, config.large),
+      byModel: config.byModel,
+    };
+    set({ fleetConfig: normalized });
     await get().init();
+  },
+  setFleetModelCounts: async (modelCounts) => {
+    const normalizedByModel = Object.entries(modelCounts).reduce<Record<string, number>>((acc, [modelName, count]) => {
+      if (getTruckModel(modelName)) {
+        acc[modelName] = Math.max(0, Math.floor(Number(count) || 0));
+      }
+      return acc;
+    }, {});
+
+    const large = CAT_MODEL_GROUPS.large.reduce((sum, name) => sum + (normalizedByModel[name] ?? 0), 0);
+    const small = CAT_MODEL_GROUPS.small.reduce((sum, name) => sum + (normalizedByModel[name] ?? 0), 0);
+    set({ fleetConfig: { small, large, byModel: normalizedByModel } });
+    await get().init();
+  },
+  setPackingObjectiveWeights: async (weights) => {
+    const next = { ...get().scenario.packingObjective, ...weights };
+    set((state) => ({ scenario: { ...state.scenario, packingObjective: next } }));
+    if (!DEMO_LOOP_MODE) {
+      try {
+        await fetch(`${API_BASE_V1}/objective_weights`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            coverage: next.coverage,
+            slope_safety: next.slopeSafety,
+            spacing: next.spacing,
+            lane_spread: next.laneSpread,
+          }),
+        });
+      } catch (e) {
+        console.error('Failed to update objective weights', e);
+      }
+    }
+  },
+  addLogMessage: (source, message) => {
+    set((state) => ({
+      messageLog: [...state.messageLog, { source, message, timestamp: Date.now() }].slice(-300),
+    }));
   },
   
   startDrawingMode: () => set({ 
@@ -936,6 +1331,8 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     yardPolygon: [], 
     settingEntryPoint: false, 
     entryPoint: null, 
+    initPhase: 'drawing',
+    initError: null,
     running: false,
     trucks: [],
     blockedCells: [],
@@ -950,28 +1347,56 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   
   finishPolygon: () => set(state => {
     if (state.polygonVertices.length >= 3) {
-      return { isDrawing: false, settingEntryPoint: true, yardPolygon: [...state.polygonVertices] };
+      return {
+        isDrawing: false,
+        settingEntryPoint: true,
+        yardPolygon: [...state.polygonVertices],
+        initPhase: 'entry_point',
+        initError: null,
+      };
     }
-    return { isDrawing: false, polygonVertices: [] };
+    return { isDrawing: false, polygonVertices: [], initPhase: 'drawing' };
   }),
   
-  setEntryPointMode: () => set({ settingEntryPoint: true, running: false }),
-  setEntryPoint: (p) => set({ settingEntryPoint: false, entryPoint: p }),
+  setEntryPointMode: () => set({ settingEntryPoint: true, running: false, initPhase: 'entry_point' }),
+  setEntryPoint: (p) => set({ settingEntryPoint: false, entryPoint: p, initPhase: 'initializing', initError: null }),
   
-  resetDrawing: () => set({ isDrawing: false, settingEntryPoint: false, polygonVertices: [], entryPoint: null, yardPolygon: [] }),
+  resetDrawing: () => set({
+    isDrawing: false,
+    settingEntryPoint: false,
+    polygonVertices: [],
+    entryPoint: null,
+    yardPolygon: [],
+    initPhase: 'ready',
+    initError: null,
+  }),
   
   submitCustomYard: async () => {
-     await get().init();
+     try {
+       await get().init();
+       set({ initPhase: 'ready', initError: null });
+       return true;
+     } catch (error) {
+       console.error('Custom yard initialization failed', error);
+       set({
+         initPhase: 'error',
+         initError: 'Yard initialization failed. Please select entry point again.',
+         settingEntryPoint: true,
+       });
+       return false;
+     }
   },
 
-  step: () => {
+  step: async () => {
     const state = get();
-    if (!state.running) return;
-
     if (!DEMO_LOOP_MODE) {
-      // Backend-driven mode: UI reflects backend state only.
+      const result = await executeBackendStep({ fromLoop: false });
+      if (result.ok) {
+        get().addLogMessage('RUN', `Manual step applied (latency ${result.latencyMs} ms).`);
+      }
       return;
     }
+    if (!state.running) return;
 
     const { grid, zones, trucks, metrics, speed, currentZoneIndex } = state;
     const newTrucks = trucks.map(t => ({ ...t }));
@@ -1050,7 +1475,9 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
           truck.dumpTimer -= speed;
           if (truck.dumpTimer <= 0) {
             const radius = getDumpRadiusForTruck(truck);
-            applyDumpToGrid(grid, { x: truck.targetX, y: truck.targetY }, truck, state.scenario);
+            if (DEMO_LOOP_MODE) {
+              applyDumpToGrid(grid, { x: truck.targetX, y: truck.targetY }, truck, state.scenario);
+            }
             state.piles.push({ x: truck.targetX, y: truck.targetY, radius });
             
             truck.dumpCount++;

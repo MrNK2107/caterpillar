@@ -31,6 +31,7 @@ class ReservationSystem:
         self._reservations: List[Reservation] = []
         self._polygon_cache: Dict[int, Polygon] = {}
         self._lock = Lock()
+        self._intents: Dict[str, Reservation] = {}
 
     def clear(self) -> None:
         with self._lock:
@@ -40,6 +41,21 @@ class ReservationSystem:
     def snapshot(self) -> List[Reservation]:
         with self._lock:
             return list(self._reservations)
+
+    def cleanup_stale(self, now_time: float) -> int:
+        removed = 0
+        with self._lock:
+            kept = []
+            for r in self._reservations:
+                ttl_s = float((r.metadata or {}).get("ttl_s", 0.0))
+                expiry = r.end_time if ttl_s <= 0 else min(r.end_time, r.start_time + ttl_s)
+                if now_time > expiry:
+                    self._polygon_cache.pop(id(r), None)
+                    removed += 1
+                else:
+                    kept.append(r)
+            self._reservations = kept
+        return removed
 
     def add_reservation(
         self,
@@ -61,6 +77,40 @@ class ReservationSystem:
         with self._lock:
             self._reservations.append(reservation)
         return reservation
+
+    def add_intent(
+        self,
+        intent_id: str,
+        truck_id: str,
+        cells: Iterable[GridCell],
+        start_time: float,
+        end_time: float,
+        reservation_type: str = "path_intent",
+        metadata: Optional[Dict[str, object]] = None,
+    ) -> Reservation:
+        reservation = Reservation(
+            truck_id=truck_id,
+            cells=tuple(dict.fromkeys(tuple(cell) for cell in cells)),
+            start_time=start_time,
+            end_time=end_time,
+            reservation_type=reservation_type,
+            metadata=dict(metadata or {}),
+        )
+        with self._lock:
+            self._intents[intent_id] = reservation
+        return reservation
+
+    def commit_intent(self, intent_id: str) -> bool:
+        with self._lock:
+            reservation = self._intents.pop(intent_id, None)
+            if reservation is None:
+                return False
+            self._reservations.append(reservation)
+            return True
+
+    def abort_intent(self, intent_id: str) -> None:
+        with self._lock:
+            self._intents.pop(intent_id, None)
 
     def remove_reservations_for_truck(self, truck_id: str, reservation_type: Optional[str] = None) -> None:
         with self._lock:
@@ -340,6 +390,45 @@ class ReservationSystem:
                     return True
 
         return False
+
+    def blocking_trucks_for_path(
+        self,
+        path_points: Sequence[Tuple[float, float]],
+        surface_map: object,
+        truck_model: object,
+        start_time: float,
+        end_time: float,
+        exclude_truck_id: Optional[str] = None,
+    ) -> List[str]:
+        if not path_points:
+            return []
+
+        length_m = float(getattr(truck_model, "length_m", getattr(truck_model, "pile_length_m", 0.0)))
+        buffer = max(5.0, length_m)
+        min_x = min(p[0] for p in path_points) - buffer
+        max_x = max(p[0] for p in path_points) + buffer
+        min_y = min(p[1] for p in path_points) - buffer
+        max_y = max(p[1] for p in path_points) + buffer
+        sweep = self._path_to_sweep_polygon(path_points, surface_map, truck_model)
+        if sweep is None:
+            return []
+
+        blockers: List[str] = []
+        with self._lock:
+            for reservation in self._reservations:
+                if exclude_truck_id is not None and reservation.truck_id == exclude_truck_id:
+                    continue
+                if not reservation.overlaps_time(start_time, end_time):
+                    continue
+                reservation_polygon = self._reservation_to_polygon(reservation, surface_map=surface_map)
+                if reservation_polygon is None:
+                    continue
+                rx_min, ry_min, rx_max, ry_max = reservation_polygon.bounds
+                if max_x < rx_min or min_x > rx_max or max_y < ry_min or min_y > ry_max:
+                    continue
+                if sweep.intersects(reservation_polygon):
+                    blockers.append(reservation.truck_id)
+        return sorted(set(blockers))
 
     def has_conflict(
         self,

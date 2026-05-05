@@ -1,0 +1,53 @@
+{
+  "id": "S03A",
+  "name": "S03A - Narrow Corridor (Static Choke Point)",
+  "description": "Persistent narrow-access corridor with mixed fleet where choke behavior exists from startup. Expected to prioritize S5 coordination.",
+  "polygon": [
+    {"x": 40, "y": 190},
+    {"x": 40, "y": 290},
+    {"x": 680, "y": 340},
+    {"x": 680, "y": 140}
+  ],
+  "entry_point": {"x": 40, "y": 240},
+  "fleet": {
+    "small": 4,
+    "large": 3,
+    "preferred_model": "Cat 793F"
+  },
+  "scenario": {
+    "dump_polygon": [
+      {"x": 40, "y": 190},
+      {"x": 40, "y": 290},
+      {"x": 680, "y": 340},
+      {"x": 680, "y": 140}
+    ],
+    "material_type": "rock",
+    "material_moisture_pct": 3.0,
+    "slope_limits": {
+      "max_cell_slope": 0.8,
+      "max_average_slope": 0.55
+    },
+    "weather": {
+      "rain_intensity": 0.0,
+      "wind_speed": 5.0,
+      "wind_direction_deg": 0,
+      "visibility_m": 500.0
+    },
+    "trigger_profile": {
+      "mode": "static",
+      "description": "Trigger when choke-point corridor is active at startup under mixed fleet."
+    },
+    "activation_preconditions": {
+      "fleet_mix": "mixed",
+      "choke_point_required": true,
+      "terrain_slope": {"max": 0.7},
+      "visibility_m": {"min": 250.0}
+    },
+    "expected_dsde_route": {
+      "expected_strategy_precedence": ["S5", "S6", "S7"],
+      "fallback_strategy": "S7",
+      "max_divergence_steps": 6
+    },
+    "timeline": []
+  }
+}
